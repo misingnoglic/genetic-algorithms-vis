@@ -1,11 +1,14 @@
-import { NQueensState } from './problems/n-queens.js'; // Optional: keep for now if needed, but ideally remove dependency
-
 // Helper to wrap algorithm steps in a generator
 // Use 'yield' to yield the current state/stats for visualization
+import { ConstructiveAlgorithms } from './constructive-algorithms.js';
 
 export const Algorithms = {
-    hillClimbing: function* (initialState, { maxSideways = 0, maxRestarts = 0 } = {}) {
-        let current = initialState;
+    hillClimbing: function* (initialState, params = {}, problem) {
+        const { maxSideways = 0, maxRestarts = 0 } = params;
+
+        // If initialState is null (e.g. for TSP/Beam where we might want to let alg init), 
+        // handle it, but usually HC takes a start node.
+        let current = initialState || problem.randomState(params);
         let restarts = 0;
         let evaluations = 0;
 
@@ -14,7 +17,7 @@ export const Algorithms = {
             yield { state: current, note: restarts > 0 ? `Restart #${restarts}` : 'Initial State', restartCount: restarts, evaluations };
 
             while (true) {
-                if (current.cost === 0) {
+                if (problem.isSolution(current)) {
                     yield { state: current, note: 'Solution Found!', restartCount: restarts, evaluations };
                     return;
                 }
@@ -64,7 +67,7 @@ export const Algorithms = {
             if (restarts < maxRestarts) {
                 yield { state: current, note: 'Stuck (Local Maxima) - Restarting...', restartCount: restarts, evaluations };
                 restarts++;
-                current = NQueensState.randomState(initialState.size);
+                current = problem.randomState(params);
                 evaluations++; // Count the restart state
             } else {
                 yield { state: current, note: 'Stuck (Local Maxima)', restartCount: restarts, evaluations };
@@ -73,8 +76,10 @@ export const Algorithms = {
         }
     },
 
-    stochasticHillClimbing: function* (initialState, { maxSideways = 0, maxRestarts = 0, variant = 'standard' } = {}) {
-        let current = initialState;
+    stochasticHillClimbing: function* (initialState, params = {}, problem) {
+        const { maxSideways = 0, maxRestarts = 0, variant = 'standard' } = params;
+
+        let current = initialState || problem.randomState(params);
         let restarts = 0;
         let evaluations = 0;
 
@@ -83,7 +88,7 @@ export const Algorithms = {
             yield { state: current, note: restarts > 0 ? `Restart #${restarts}` : 'Initial State', restartCount: restarts, evaluations };
 
             while (true) {
-                if (current.cost === 0) {
+                if (problem.isSolution(current)) {
                     yield { state: current, note: 'Solution Found!', restartCount: restarts, evaluations };
                     return;
                 }
@@ -94,37 +99,22 @@ export const Algorithms = {
                 // --- Strategies ---
 
                 if (variant === 'firstChoice') {
-                    // Generate neighbors randomly until better found or max attempts reached
-                    // "First-choice hill climbing implements stochastic hill climbing by generating successors randomly until one is generated that is better"
-                    // We need a limit to prevent infinite loops if local optima
-                    // Use a higher multiplier to ensure we don't miss sideways moves too easily
-                    const MAX_ATTEMPTS = current.size * current.size * 5;
+                    const MAX_ATTEMPTS = 500; // Fixed reasonable limit to prevent hang
                     let firstSideways = null;
 
                     for (let i = 0; i < MAX_ATTEMPTS; i++) {
                         evaluations++; // Count each check
 
-                        // Generate random neighbor: pick random queen, move to random col
-                        const queens = [...current.queens];
-                        const row = Math.floor(Math.random() * current.size);
-                        const col = Math.floor(Math.random() * current.size);
-
-                        // Avoid self (not strictly necessary but efficient)
-                        if (queens[row] === col) {
-                            i--; continue;
-                        }
-
-                        queens[row] = col;
-                        const neighbor = new NQueensState(current.size, queens);
+                        // Use problem-specific random neighbor if available, or fallback
+                        // Ideally state.getRandomNeighbor()
+                        const neighbor = current.getRandomNeighbor();
 
                         if (neighbor.cost < current.cost) {
                             nextState = neighbor;
                             moveType = 'Improved';
-                            // console.log('[FirstChoice] Found better neighbor');
                             break;
                         } else if (neighbor.cost === current.cost && !firstSideways) {
                             firstSideways = neighbor;
-                            // console.log('[FirstChoice] Found sideways candidate');
                         }
                     }
 
@@ -133,11 +123,10 @@ export const Algorithms = {
                         nextState = firstSideways;
                         moveType = 'Sideways';
                     } else if (!nextState && !firstSideways) {
-                        // Force 'Stuck' yield with more info if we are about to restart
                         if (restarts < maxRestarts) {
                             yield { state: current, note: `Stuck (Checked ${MAX_ATTEMPTS}, No moves) - Restarting...`, restartCount: restarts, evaluations };
                             restarts++;
-                            current = NQueensState.randomState(initialState.size);
+                            current = problem.randomState(params);
                             evaluations++;
                             continue; // Skip the outer loop yield
                         }
@@ -145,13 +134,11 @@ export const Algorithms = {
                         if (restarts < maxRestarts) {
                             yield { state: current, note: `Stuck (Sideways limit ${maxSideways}) - Restarting...`, restartCount: restarts, evaluations };
                             restarts++;
-                            current = NQueensState.randomState(initialState.size);
+                            current = problem.randomState(params);
                             evaluations++;
                             continue;
                         }
                     }
-                    // Sideways not typically compatible with pure First Choice in strict definition, 
-                    // but we could add it. For now, let's stick to "looking for better".
 
                 } else {
                     // "Standard" (Random Uphill) and "Weighted" (Steepness) use all neighbors
@@ -211,7 +198,7 @@ export const Algorithms = {
             if (restarts < maxRestarts) {
                 yield { state: current, note: 'Stuck (Local Maxima) - Restarting...', restartCount: restarts, evaluations };
                 restarts++;
-                current = NQueensState.randomState(initialState.size);
+                current = problem.randomState(params);
                 evaluations++;
             } else {
                 yield { state: current, note: 'Stuck (Local Maxima)', restartCount: restarts, evaluations };
@@ -220,15 +207,17 @@ export const Algorithms = {
         }
     },
 
-    simulatedAnnealing: function* (initialState, { initialTemp = 100, coolingRate = 0.99 } = {}) {
-        let current = initialState;
+    simulatedAnnealing: function* (initialState, params = {}, problem) {
+        const { initialTemp = 100, coolingRate = 0.99 } = params;
+
+        let current = initialState || problem.randomState(params);
         let temp = initialTemp;
         let evaluations = 0;
 
         yield { state: current, note: `T=${temp.toFixed(2)}`, evaluations };
 
         while (true) {
-            if (current.cost === 0) {
+            if (problem.isSolution(current)) {
                 yield { state: current, note: 'Solution Found!', evaluations };
                 return;
             }
@@ -265,16 +254,15 @@ export const Algorithms = {
 
             // If temperature gets too low and we haven't found a solution, reheat or restart
             if (temp < 0.01) {
-                if (current.cost > 0) {
-                    // Reheat logic could be: temp = initialTemp;
-                    // But let's do a hard restart to escape deep local optima
-                    yield { state: current, note: 'Frozen - Restarting...', evaluations };
-                    current = NQueensState.randomState(initialState.size);
-                    temp = initialTemp;
-                } else {
-                    // Should have been caught by cost === 0 check, but just in case
+                if (problem.isSolution(current)) { // Should have been caught, but check again
+                    yield { state: current, note: 'Solution Found!', evaluations };
                     return;
                 }
+
+                // For TSP, we don't know if we have a solution by cost > 0.
+                // Request: Just stop when frozen.
+                yield { state: current, note: 'Frozen', evaluations };
+                return;
             }
         }
     },
@@ -298,6 +286,7 @@ export const Algorithms = {
             // Initial Yield
             population.sort((a, b) => a.cost - b.cost);
             let best = population[0];
+            let bestSoFar = best;
             let sidewaysMoves = 0;
 
             yield {
@@ -310,12 +299,10 @@ export const Algorithms = {
             };
 
             // Generation Loop
-            // We use a label to break out to the restart loop
             let stuck = false;
 
             for (let gen = 1; gen <= maxGenerations; gen++) {
-                // Check if current best is solution
-                if (best.cost === 0) {
+                if (problem.isSolution(best)) {
                     yield { state: best, population, note: `Solution Found!`, evaluations, restartCount: restarts };
                     return;
                 }
@@ -335,10 +322,19 @@ export const Algorithms = {
                 let nextPopulation = [];
 
                 if (variant === 'stochastic') {
-                    // ... (keep stochastic logic) ...
-                    // Re-implementing short version for replacement context
-                    const beta = 1;
-                    const weights = allSuccessors.map(s => Math.exp(-beta * s.cost));
+                    // Helper to avoid NaN if costs are huge?
+                    // normalize costs relative to min?
+                    // cost can be large for TSP. exp(-cost) -> 0.
+                    // Need better selection for large costs.
+                    // Use Rank selection or Tournament?
+                    // Let's stick to weighted but maybe careful with beta.
+                    // Or just use Tournament for consistency?
+                    // Let's stick to implementation but normalize min cost.
+
+                    const minCost = allSuccessors.reduce((min, s) => Math.min(min, s.cost), Infinity);
+                    const beta = 1; // Sensitivity
+                    // Shift costs so best is 0 to avoid underflow
+                    const weights = allSuccessors.map(s => Math.exp(-beta * (s.cost - minCost)));
                     const totalWeight = weights.reduce((a, b) => a + b, 0);
 
                     for (let k = 0; k < beamWidth; k++) {
@@ -369,15 +365,25 @@ export const Algorithms = {
 
                 // Check Progress / Sideways
                 let note = '';
-                if (newBest.cost < best.cost) {
+                // Fix: Only reset sideways if we improve upon the BEST seen so far, 
+                // preventing oscillation (A -> B -> A) from resetting the count.
+                if (!bestSoFar || newBest.cost < bestSoFar.cost) {
                     sidewaysMoves = 0;
-                    note = `Gen ${gen} Improved: ${newBest.cost} `;
+                    bestSoFar = newBest;
+                    note = `Gen ${gen} Improved: ${newBest.cost.toFixed(2)} `;
                 } else {
                     sidewaysMoves++;
                     note = `Gen ${gen} Sideways(${sidewaysMoves} / ${maxSideways})`;
                 }
 
-                best = newBest;
+                best = newBest; // We still move to the new population
+
+                // Update bestSoFar if we somehow lost it or it wasn't set?
+                // Actually bestSoFar logic above handles it.
+                // But wait, if newBest < best.cost but >= bestSoFar?
+                // e.g. 10 -> 12. bestSoFar=10. new=12. Sideways++.
+                // Next: 12 -> 10. bestSoFar=10. new=10. Sideways++.
+                // Yes, that works.
 
                 yield {
                     state: best,
@@ -388,7 +394,7 @@ export const Algorithms = {
                     evaluations
                 };
 
-                if (best.cost === 0) {
+                if (problem.isSolution(best)) {
                     yield { state: best, population, note: `Solution Found!`, evaluations, restartCount: restarts };
                     return;
                 }
@@ -417,9 +423,8 @@ export const Algorithms = {
         const {
             startingPopulationSize = 100,
             mutationRate = 0.1,
-            // mixingNumber = 2, // Hardcoded to 2 for visualization simplicity
-            cullRate = 0.0, // Percentage of population to kill off before selection
-            elitism = true, // Keep best individual
+            cullRate = 0.0,
+            elitism = true,
             maxGenerations = 1000
         } = params;
 
@@ -443,13 +448,13 @@ export const Algorithms = {
         yield {
             state: best,
             population: population, // Yield full population
-            note: `Gen 0 Best: ${best.cost} `,
+            note: `Gen 0 Best: ${best.cost.toFixed(2)} `,
             populationStats: { size: population.length, avgCost: avgCost(population) },
             evaluations
         };
 
         for (let gen = 1; gen <= maxGenerations; gen++) {
-            if (best.cost === 0) {
+            if (problem.isSolution(best)) {
                 yield { state: best, population, note: `Solution in Gen ${gen - 1} `, evaluations };
                 return;
             }
@@ -472,10 +477,11 @@ export const Algorithms = {
 
             // Elitism: Keep best
             if (elitism) {
-                const elite = survivors[0]; // Assuming sorted
-                elite.metadata = { status: 'Elite' }; // Mark elite
+                const elite = survivors[0].clone(); // Clone to prevent mutation affecting previous gen stats if ref held?
+                // Actually, state objects are usually immutable-ish or replaced. 
+                // But deep clone is safer for elite persistence.
+                elite.metadata = { status: 'Elite' };
                 newPopulation.push(elite);
-                // Elites don't count as new evaluations, they are just copied
             }
 
             // Generate new population
@@ -484,7 +490,6 @@ export const Algorithms = {
                 const parents = [];
                 for (let p = 0; p < mixingNumber; p++) {
                     const parent = tournamentSelect(survivors, 3);
-                    // parent.metadata = { status: 'Parent' }; // Could mark, but they can be reused
                     parents.push(parent);
                 }
 
@@ -506,12 +511,15 @@ export const Algorithms = {
             yield {
                 state: best,
                 population: population,
-                note: `Gen ${gen} Best: ${best.cost} `,
+                note: `Gen ${gen} Best: ${best.cost.toFixed(2)} `,
                 populationStats: { size: population.length, avgCost: avgCost(population) },
                 evaluations
             };
         }
-    }
+    },
+
+    // spread constructive
+    ...ConstructiveAlgorithms
 };
 
 // --- GA Helpers ---
@@ -530,41 +538,4 @@ function tournamentSelect(population, k = 3) {
         }
     }
     return best;
-}
-
-function crossover(parents, size) {
-    // If mixingNumber (rho) = 2, standard crossover
-    // If > 2, we can do uniform crossover from pool
-
-    // Uniform crossover generalizable to N parents: each gene comes from a random parent
-    if (parents.length > 2) {
-        const childQueens = [];
-        for (let i = 0; i < size; i++) {
-            const randomParent = parents[Math.floor(Math.random() * parents.length)];
-            childQueens.push(randomParent.queens[i]);
-        }
-        return new NQueensState(size, childQueens);
-    } else {
-        // Standard random point crossover for 2 parents
-        // Or Uniform (50/50)
-        // Let's implement single point for 2 parents as it's classic
-        const p1 = parents[0];
-        const p2 = parents[1];
-        const point = Math.floor(Math.random() * size);
-
-        const childQueens = [
-            ...p1.queens.slice(0, point),
-            ...p2.queens.slice(point)
-        ];
-        return new NQueensState(size, childQueens);
-    }
-}
-
-function mutate(state, rate) {
-    for (let i = 0; i < state.size; i++) {
-        if (Math.random() < rate) {
-            state.queens[i] = Math.floor(Math.random() * state.size);
-            state.cachedCost = null; // Invalidate cache
-        }
-    }
 }

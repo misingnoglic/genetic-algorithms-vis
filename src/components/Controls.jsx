@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, RotateCcw, FastForward, SkipForward } from 'lucide-react';
+import { Play, Pause, RotateCcw, FastForward, SkipForward, Zap, Shuffle, RefreshCw, Trophy } from 'lucide-react';
 
 const Controls = ({
     algorithm,
@@ -11,10 +11,14 @@ const Controls = ({
     algoParams,
     setAlgoParams,
     isPlaying,
+    isTurbo,
     isFinished,
     onPlayPause,
-    onReset,
+    onRestart,
+    onNewProblem,
     onStep,
+    onTurbo,
+    onShowBenchmark,
     speed,
     setSpeed
 }) => {
@@ -35,16 +39,68 @@ const Controls = ({
 
             {/* Global Settings */}
             <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase text-slate-400">Board Size (N)</label>
-                <input
-                    type="number"
-                    min="4" max="20"
-                    value={problemParams.size || 8}
-                    onChange={(e) => handleProblemParamChange('size', parseInt(e.target.value))}
+                <label className="text-xs font-semibold uppercase text-slate-400">Problem</label>
+                <select
+                    value={problemId}
+                    onChange={(e) => { setProblemId(e.target.value); }}
                     className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
                     disabled={isPlaying}
-                />
+                >
+                    <option value="n-queens">N-Queens</option>
+                    <option value="tsp">Traveling Salesperson</option>
+                    <option value="sudoku">Sudoku</option>
+                </select>
             </div>
+
+            <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase text-slate-400">
+                    {problemId === 'tsp' ? 'Number of Cities' : (problemId === 'sudoku' ? 'Grid Size' : 'Board Size (N)')}
+                </label>
+
+                {problemId === 'sudoku' ? (
+                    <select
+                        value={problemParams.size || 9}
+                        onChange={(e) => {
+                            const newSize = parseInt(e.target.value);
+                            const newK = Math.floor(newSize * newSize * 0.60);
+                            setProblemParams(prev => ({ ...prev, size: newSize, removeCount: newK }));
+                        }}
+                        className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                        disabled={isPlaying}
+                    >
+                        <option value="3">3x3 (Tiny)</option>
+                        <option value="6">6x6 (Mini)</option>
+                        <option value="9">9x9 (Standard)</option>
+                        <option value="15">15x15 (Giant)</option>
+                    </select>
+                ) : (
+                    <input
+                        type="number"
+                        min="4" max={problemId === 'tsp' ? "50" : "20"}
+                        value={problemParams.size || (problemId === 'tsp' ? 20 : 8)}
+                        onChange={(e) => handleProblemParamChange('size', parseInt(e.target.value))}
+                        className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                        disabled={isPlaying}
+                    />
+                )}
+            </div>
+
+            {problemId === 'sudoku' && (
+                <div className="space-y-2">
+                    <div className="flex justify-between text-xs text-slate-400 uppercase">
+                        <label className="font-semibold">Empty Cells (k)</label>
+                        <span>{problemParams.removeCount || 40}</span>
+                    </div>
+                    <input
+                        type="range"
+                        min="1"
+                        max={(problemParams.size || 9) * (problemParams.size || 9)}
+                        value={problemParams.removeCount || 40}
+                        onChange={(e) => handleProblemParamChange('removeCount', parseInt(e.target.value))}
+                        className="w-full accent-blue-500"
+                    />
+                </div>
+            )}
 
             <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase text-slate-400">Algorithm</label>
@@ -59,8 +115,27 @@ const Controls = ({
                     <option value="localBeamSearch">Local Beam Search</option>
                     <option value="simulatedAnnealing">Simulated Annealing</option>
                     <option value="geneticAlgorithm">Genetic Algorithm</option>
+                    <optgroup label="Uninformed Search">
+                        <option value="bfs">Breadth-First Search</option>
+                        <option value="dfs">Depth-First Search</option>
+                    </optgroup>
+                    {(problemId === 'n-queens' || problemId === 'sudoku') && (
+                        <optgroup label="Constraint Satisfaction">
+                            <option value="backtracking">Backtracking</option>
+                            <option value="forwardChecking">Forward Checking</option>
+                            <option value="arcConsistency">Arc Consistency (AC-3)</option>
+                        </optgroup>
+                    )}
                 </select>
             </div>
+
+            {/* Benchmark Trigger */}
+            <button
+                onClick={onShowBenchmark}
+                className="w-full mt-2 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded text-xs font-bold flex items-center justify-center gap-2 transition-colors border border-slate-600 mb-2"
+            >
+                <Trophy size={12} className="text-amber-400" /> COMPARE ALGORITHMS
+            </button>
 
             {/* Algorithm Specific Params */}
             <div className="space-y-4 border-t border-slate-700 pt-4">
@@ -196,10 +271,37 @@ const Controls = ({
                         </div>
                     </>
                 )}
+                {(algorithm === 'bfs' || algorithm === 'dfs') && (
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold uppercase text-slate-400">Max Iterations (Limit)</label>
+                        <input
+                            type="number"
+                            min="10" max="1000000"
+                            value={algoParams.maxIterations || 1000}
+                            onChange={(e) => handleAlgoParamChange('maxIterations', parseInt(e.target.value))}
+                            className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                        />
+                        <p className="text-[10px] text-slate-500">Uninformed search can take a very long time. Use limit to stop execution.</p>
+                    </div>
+                )}
             </div>
 
             {/* Execution Controls */}
             <div className="mt-auto space-y-4 pt-4 border-t border-slate-700">
+                {/* Turbo Button */}
+                <div className="flex gap-2">
+                    <button
+                        onClick={onTurbo}
+                        disabled={isFinished}
+                        className={`flex-1 py-2 px-2 rounded font-bold text-sm tracking-wide flex items-center justify-center gap-1 transition-all
+                            ${isTurbo
+                                ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(147,51,234,0.5)] scale-105'
+                                : 'bg-slate-700 text-purple-400 hover:bg-slate-600 hover:text-purple-300'}`}
+                    >
+                        <Zap size={16} className={isTurbo ? "fill-current" : ""} /> TURBO
+                    </button>
+                </div>
+
                 <div className="space-y-2">
                     <div className="flex justify-between text-xs text-slate-400 uppercase">
                         <span>Speed</span>
@@ -216,32 +318,41 @@ const Controls = ({
 
                 <div className="flex gap-2">
                     <button
-                        onClick={isFinished ? () => { onReset(); setTimeout(onPlayPause, 0); } : onPlayPause}
+                        onClick={isFinished ? () => { onRestart(); setTimeout(onPlayPause, 0); } : onPlayPause}
                         className={`flex-1 py-2 rounded flex items-center justify-center gap-2 font-bold ${isPlaying
                             ? 'bg-red-500 hover:bg-red-600'
                             : (isFinished ? 'bg-blue-500 hover:bg-blue-600' : 'bg-green-500 hover:bg-green-600')
                             }`}
                     >
                         {isPlaying ? <Pause size={18} /> : (isFinished ? <RotateCcw size={18} /> : <Play size={18} />)}
-                        {isPlaying ? 'Pause' : (isFinished ? 'Restart & Run' : 'Start')}
+                        {isPlaying ? 'Pause' : (isFinished ? 'Rerun' : 'Start')}
                     </button>
 
                     <button
                         onClick={onStep}
                         disabled={isPlaying || isFinished}
-                        className="px-3 py-2 bg-slate-600 rounded hover:bg-slate-500 disabled:opacity-50"
+                        className="px-3 py-2 bg-slate-700 rounded hover:bg-slate-600 disabled:opacity-50 text-slate-200"
                         title="Single Step"
                     >
                         <SkipForward size={18} />
                     </button>
 
-                    <button
-                        onClick={onReset}
-                        className="px-3 py-2 bg-slate-600 rounded hover:bg-slate-500"
-                        title="Reset"
-                    >
-                        <RotateCcw size={18} />
-                    </button>
+                    <div className="flex flex-col gap-1">
+                        <button
+                            onClick={onRestart}
+                            className="px-3 py-1 bg-slate-700 rounded hover:bg-slate-600 text-slate-200 text-xs flex items-center gap-1"
+                            title="Restart (Same Graph)"
+                        >
+                            <RefreshCw size={14} /> Same
+                        </button>
+                        <button
+                            onClick={onNewProblem}
+                            className="px-3 py-1 bg-slate-700 rounded hover:bg-slate-600 text-slate-200 text-xs flex items-center gap-1"
+                            title="New Problem"
+                        >
+                            <Shuffle size={14} /> New
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

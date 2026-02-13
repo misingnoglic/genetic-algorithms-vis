@@ -1,13 +1,26 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import Board from './components/Board';
+import NQueensBoard from './components/boards/NQueensBoard';
+import TSPBoard from './components/boards/TSPBoard';
 import Controls from './components/Controls';
 import StatsPanel from './components/StatsPanel';
 import PopulationGrid from './components/PopulationGrid';
 import { NQueensProblem } from './core/problems/n-queens.js';
+import { TSPProblem } from './core/problems/tsp.js';
 import { Algorithms } from './core/algorithms.js';
+import { BenchmarkRunner } from './core/benchmark.js';
+import BenchmarkModal from './components/BenchmarkModal.jsx';
+
+import { SudokuProblem } from './core/problems/sudoku.js';
+import SudokuBoard from './components/boards/SudokuBoard';
 
 const PROBLEM_REGISTRY = {
-  [NQueensProblem.id]: NQueensProblem
+  [NQueensProblem.id]: NQueensProblem,
+  [TSPProblem.id]: TSPProblem,
+  [SudokuProblem.id]: SudokuProblem
+};
+
+const isConstructive = (algo) => {
+  return ['bfs', 'dfs', 'backtracking', 'forwardChecking', 'arcConsistency'].includes(algo);
 };
 
 function App() {
@@ -18,6 +31,11 @@ function App() {
   // Params - merged generic and problem specific
   // We'll store them in a single object for now, or separate
   const [problemParams, setProblemParams] = useState(NQueensProblem.defaultParams);
+
+  // Reset params when problem changes
+  useEffect(() => {
+    setProblemParams(PROBLEM_REGISTRY[selectedProblemId].defaultParams);
+  }, [selectedProblemId]);
 
   const [algoParams, setAlgoParams] = useState({
     // Default params
@@ -35,58 +53,301 @@ function App() {
   const [speed, setSpeed] = useState(100); // ms delay
 
   // Execution State
+  // Execution State
+  const [initialState, setInitialState] = useState(null); // Store the starting state for restarts
   const [currentState, setCurrentState] = useState(null);
   const [population, setPopulation] = useState(null); // Full population for GA
   const [history, setHistory] = useState([]); // Array of costs
   const [stepCount, setStepCount] = useState(0);
   const [evaluations, setEvaluations] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isTurbo, setIsTurbo] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
   const [algoNote, setAlgoNote] = useState('');
+  const [optimalCost, setOptimalCost] = useState(null);
+
+  // Benchmark State
+  const [showBenchmark, setShowBenchmark] = useState(false);
+  const [benchmarkRunner, setBenchmarkRunner] = useState(null);
+  const [benchmarkProgress, setBenchmarkProgress] = useState(0);
+  const [benchmarkResults, setBenchmarkResults] = useState(null);
 
   // Refs
   const iteratorRef = useRef(null);
   const timerRef = useRef(null);
+  const currentStateRef = useRef(currentState);
+
+  // Keep ref updated
+  useEffect(() => {
+    currentStateRef.current = currentState;
+  }, [currentState]);
 
   const currentProblem = PROBLEM_REGISTRY[selectedProblemId];
 
-  // Initialize
-  const initialize = useCallback(() => {
+  const handleRunBenchmark = useCallback(async () => {
+    setBenchmarkResults(null);
+    setBenchmarkProgress(0);
+
+    // Create runner with CURRENT problem setup
+    // Ensure we use a fresh runner
+    const params = { ...problemParams };
+    // For TSP, include cities if present in current state? 
+    // Actually BenchmarkRunner logic handles generation.
+    // If we want to benchmark THIS specific graph, we should pass current cities.
+    if (selectedProblemId === TSPProblem.id && currentState && currentState.cities) {
+      params.cities = currentState.cities;
+    }
+
+    const runner = new BenchmarkRunner(currentProblem, params);
+    setBenchmarkRunner(runner);
+
+    const results = await runner.run((prog) => {
+      setBenchmarkProgress(prog);
+    });
+
+    if (results) {
+      setBenchmarkResults(results);
+    }
+  }, [currentProblem, problemParams, selectedProblemId, currentState]);
+
+  const searchSpace = currentProblem.getSearchSpace ? currentProblem.getSearchSpace(problemParams, currentState) : { formula: '?', approx: '?' };
+
+  // Helper to reset execution state to a given state
+  const resetToState = useCallback((state) => {
     // Stop any running
-    stop();
-    // Create initial state using problem factory
-    const initial = currentProblem.randomState(problemParams);
-    setCurrentState(initial);
-    setHistory([initial.cost]);
+    setIsPlaying(false);
+    setIsTurbo(false);
+    setIsFinished(false);
+    iteratorRef.current = null;
+
+    setCurrentState(state);
+
+    // Only add initial cost to history if it's a complete state (or close to it)
+    // We want to avoid adding the "Empty State" penalty (e.g. 8000 for N-Queens) to the chart
+    if (state.isPartial) {
+      setHistory([]);
+    } else {
+      setHistory([state.cost]);
+    }
+
     setStepCount(0);
     setEvaluations(0);
     setAlgoNote('Ready');
-    setIsFinished(false);
-    setPopulation(null); // Clear population
-    iteratorRef.current = null;
-  }, [currentProblem, problemParams]);
+    setPopulation(null);
+  }, []);
 
-  // Handle Params Change or Reset
+  // Generate a completely new problem instance
+  const generateNewProblem = useCallback(() => {
+    // Reset params helper if needed
+    const params = { ...problemParams };
+    if (!params.size) params.size = currentProblem.defaultParams.size;
+
+    // Force new cities for TSP if generating new problem
+    if (selectedProblemId === TSPProblem.id) {
+      delete params.cities;
+    }
+
+    // 1. Generate FULL random state first (to Ensure cities/puzzle are created)
+    const fullState = currentProblem.randomState(params);
+
+    // 2. Extract definition to params for Empty State creation
+    // We update the local 'params' object which is passed to emptyState
+    // We do NOT update the state 'problemParams' to avoid re-render loops, 
+    // but we ensure the *Problem Instance* data (cities, fixedMask) is preserved in fullState
+    // and can be extracted.
+
+    // Actually, distinct from 'params', let's make a 'defParams'
+    const defParams = { ...params };
+
+    if (selectedProblemId === TSPProblem.id) {
+      defParams.cities = fullState.cities;
+    }
+    if (selectedProblemId === SudokuProblem.id) {
+      // SudokuProblem.randomState returned a state.
+      // We need the fixed mask from it to define the "Puzzle".
+      defParams.initialGrid = fullState.grid; // Full grid
+      defParams.fixedMask = fullState.fixed;  // Mask
+    }
+
+    // 3. Create Empty State (Display Only)
+    // This state will be what the user sees initially (Blank Board, Map, Puzzle)
+    const emptyState = currentProblem.emptyState(defParams);
+
+    // Calculate known best
+    let opt = null;
+    if (currentProblem.estimatedOptimalCost) {
+      opt = currentProblem.estimatedOptimalCost(defParams);
+    }
+    setOptimalCost(opt);
+
+    // Set Initial State to the EMPTY state
+    setInitialState(emptyState);
+    resetToState(emptyState);
+  }, [currentProblem, problemParams, selectedProblemId, resetToState]);
+
+  // Handle Params Change or Init
   useEffect(() => {
-    initialize();
-  }, [initialize]);
+    generateNewProblem();
+  }, [generateNewProblem]);
 
-  const startAlgorithm = () => {
+  // Handle Algorithm Change -> Auto Restart
+  useEffect(() => {
+    // If we switch algorithms, we likely want to start fresh with the current problem
+    handleRestart();
+  }, [algorithm]); // depends on handleRestart but we need to define it first or move effect down?
+  // Actually handleRestart uses state, so it changes.
+  // We need handleRestart to be defined BEFORE this effect or hoist it?
+  // Functions defined with const are NOT hoisted.
+  // We should move this effect AFTER handleRestart definition.
+
+  // Let's define handleRestart first.
+
+  const handleRestart = useCallback(() => {
+    if (initialState) {
+      resetToState(initialState);
+    } else {
+      generateNewProblem();
+    }
+  }, [initialState, resetToState, generateNewProblem]);
+
+  // Now the effect
+  useEffect(() => {
+    handleRestart();
+  }, [algorithm, handleRestart]);
+
+  const handleNewProblem = () => {
+    generateNewProblem();
+  };
+
+
+
+  const startAlgorithm = useCallback(() => {
     if (!iteratorRef.current) {
       // Create generator
       let gen;
       // Merge params
-      const fullParams = { ...algoParams, ...problemParams };
+      let fullParams = { ...algoParams, ...problemParams };
+      let current = currentStateRef.current;
+
+      // Ensure we use the cities currently displayed on the board
+      if (selectedProblemId === TSPProblem.id && current && current.cities) {
+        fullParams.cities = current.cities;
+      }
+
+      // Ensure we use the Sudoku puzzle definition (grid/fixed)
+      if (selectedProblemId === SudokuProblem.id && initialState) {
+        // If initialState is the empty puzzle, it has grid/fixed
+        fullParams.initialGrid = initialState.grid;
+        fullParams.fixedMask = initialState.fixed;
+      }
+
+      // AUTO-START CHECKS:
+      // If Algorithm is Local Search (needs full state) AND Current State is Partial/Empty:
+      // We must generate a RANDOM start state on the fly.
+      if (!isConstructive(algorithm) && current && current.isPartial) {
+        console.log('Auto-generating random start state for Local Search...');
+        // Use fullParams which now contains cities/puzzle
+        const randomStart = currentProblem.randomState(fullParams);
+
+        // Update View immediately to show the random start
+        setCurrentState(randomStart);
+        setHistory([randomStart.cost]); // Start chart with this valid random state cost
+        setStepCount(0); // Reset counters for the new run
+        setEvaluations(0);
+        current = randomStart; // Use this new state for the algo
+      }
 
       if (algorithm === 'geneticAlgorithm' || algorithm === 'localBeamSearch') {
         // GA and Beam Search create their own population but we pass just params AND problem instance
         gen = Algorithms[algorithm](null, fullParams, currentProblem);
       } else {
-        gen = Algorithms[algorithm](currentState, fullParams);
+        gen = Algorithms[algorithm](current, fullParams, currentProblem);
       }
       iteratorRef.current = gen;
     }
-  };
+  }, [algorithm, algoParams, problemParams, currentProblem, selectedProblemId, initialState]);
+
+  // Helper to run N steps (batch)
+  const runBatch = useCallback((batchSize) => {
+    if (!iteratorRef.current) {
+      startAlgorithm();
+    }
+
+    // Safety check
+    if (!iteratorRef.current) return;
+
+    let lastResult = null;
+    let batchHistory = [];
+    let lastValidState = null;
+    let lastValidValue = null;
+
+    // Run loop
+    for (let i = 0; i < batchSize; i++) {
+      lastResult = iteratorRef.current.next();
+      if (lastResult.done) break;
+
+      if (lastResult.value) {
+        lastValidValue = lastResult.value;
+        if (lastResult.value.state) {
+          lastValidState = lastResult.value.state;
+          batchHistory.push(lastResult.value.state.cost);
+        }
+      }
+    }
+
+    if (!lastResult) return;
+
+    // Update State (Apply regardless of done status if we have data)
+    if (lastValidState) {
+      setCurrentState(lastValidState);
+      setHistory(prev => [...prev, ...batchHistory]);
+      setStepCount(prev => prev + batchHistory.length);
+    }
+
+    if (lastValidValue) {
+      const { population, note, populationStats, restartCount, evaluations } = lastValidValue;
+
+      if (population) setPopulation(population);
+
+      let detailedNote = note;
+      if (populationStats) {
+        detailedNote = `${note} | Pop: ${populationStats.size} | Avg: ${populationStats.avgCost} `;
+      } else if (restartCount !== undefined && restartCount > 0) {
+        detailedNote = `${note} (Restart #${restartCount})`;
+      }
+      setAlgoNote(detailedNote);
+
+      if (evaluations !== undefined) setEvaluations(evaluations);
+    }
+
+    // Handle Finished
+    if (lastResult.done) {
+      setIsPlaying(false);
+      setIsTurbo(false);
+      setIsFinished(true);
+      // If generator returns a value, use it as the final note
+      if (lastResult.value && typeof lastResult.value === 'string') {
+        setAlgoNote(lastResult.value);
+      } else {
+        // If the last valid note was "Solution Found!", keep it? 
+        // Or use "Finished"? Usually generator returns "Solution Found!" as string.
+        if (!algoNote.includes('Solution') && !algoNote.includes('Stopped')) {
+          setAlgoNote('Finished');
+        }
+      }
+      return;
+    }
+
+    // Auto-stop solution (redundant check if generator handles it, but good for safety)
+    if (lastValidState && currentProblem.isSolution(lastValidState)) {
+      setIsPlaying(false);
+      setIsTurbo(false);
+      setIsFinished(true);
+      setAlgoNote('Solution Found!');
+    } else if (lastResult.value && !lastResult.value.state && !lastResult.done) {
+      // Case where state is null but not done? (Shouldn't happen with new logic)
+    }
+  }, [currentProblem, selectedProblemId, algorithm, algoParams, problemParams, startAlgorithm]); // Removed currentState
 
   const step = useCallback(() => {
     if (!iteratorRef.current) {
@@ -98,19 +359,26 @@ function App() {
     if (result.done) {
       setIsPlaying(false);
       setIsFinished(true);
-      setAlgoNote('Finished');
+      if (result.value && typeof result.value === 'string') {
+        setAlgoNote(result.value);
+      } else {
+        setAlgoNote('Finished');
+      }
       return;
     }
 
     const { state, population, note, populationStats, restartCount, evaluations } = result.value;
-    console.log('Step result:', { note, evaluations, restartCount }); // Debug log
-    setCurrentState(state);
+    // console.log('Step result:', { note, evaluations, restartCount }); // Debug log
+
+    if (state) {
+      setCurrentState(state);
+    }
     // We could store population in state if we want to visualize it
     // For now, let's just keep 'state' as the best, but maybe pass population to a new view
 
     // Hack: We can temporarily attach population to the state object or separate state
     // Let's separate state
-    setPopulation(population);
+    if (population) setPopulation(population);
 
     let detailedNote = note;
     if (populationStats) {
@@ -122,38 +390,77 @@ function App() {
     setAlgoNote(detailedNote);
     if (evaluations !== undefined) setEvaluations(evaluations);
 
-    setHistory(prev => [...prev, state.cost]);
-    setStepCount(prev => prev + 1);
+    if (state) {
+      setHistory(prev => [...prev, state.cost]);
+      setStepCount(prev => prev + 1);
+    }
 
-
-    // Auto-stop if solution found (cost 0)
-    if (state.cost === 0) {
+    // Auto-stop if solution found (cost 0 or problem says so)
+    if (state && currentProblem.isSolution(state)) {
+      setIsPlaying(false);
+      setIsFinished(true);
+    } else if (!state) {
       setIsPlaying(false);
       setIsFinished(true);
     }
-  }, [algorithm, algoParams, problemParams, currentState, currentProblem]); // Dependencies here are a bit tricky with ref, but safer to include
+  }, [algorithm, algoParams, problemParams, currentProblem, startAlgorithm]); // Removed currentState
 
   const togglePlay = () => {
     if (isPlaying) {
       setIsPlaying(false);
+      setIsTurbo(false);
     } else {
       setIsPlaying(true);
     }
   };
 
-  useEffect(() => {
-    if (isPlaying) {
-      timerRef.current = setInterval(step, speed);
+  const toggleTurbo = () => {
+    if (isTurbo) {
+      setIsTurbo(false);
+      setIsPlaying(false);
     } else {
-      clearInterval(timerRef.current);
+      setIsTurbo(true);
+      setIsPlaying(true);
     }
-    return () => clearInterval(timerRef.current);
-  }, [isPlaying, step, speed]);
-
-  const reset = () => {
-    setIsPlaying(false);
-    initialize();
   };
+
+  // Timer / Animation Loop
+  useEffect(() => {
+    if (!isPlaying) {
+      return;
+    }
+
+    if (isTurbo) {
+      // Turbo Loop: requestAnimationFrame with large batch
+      let animId;
+      const loop = () => {
+        // dynamic batch size? 
+        // For HC, 100 is too laggy. Let's try 20.
+        // For Simulated Annealing (O(1) per step), 100 was fine. 
+        // We could make it dynamic based on algorithm, but 20 is a safe middle ground.
+        // Or distinct: SA -> 500, HC -> 10.
+        let batch = 10;
+        if (algorithm === 'simulatedAnnealing' || algorithm === 'stochasticHillClimbing') {
+          // Stochastic HC (First Choice) is cheap if it doesn't scan all neighbors.
+          // But 'weighted' variant scans all.
+          // Let's keep it simple: 20.
+          batch = 50;
+        }
+        if (algorithm === 'hillClimbing') batch = 5; // Very expensive per step
+
+        runBatch(batch);
+        animId = requestAnimationFrame(loop);
+      };
+      loop();
+      return () => cancelAnimationFrame(animId);
+    } else {
+      // Normal Speed
+      timerRef.current = setInterval(step, speed);
+      return () => clearInterval(timerRef.current);
+    }
+  }, [isPlaying, isTurbo, speed, step, runBatch]);
+
+
 
   return (
     <div className="flex h-screen w-full bg-slate-900 text-slate-100 overflow-hidden font-sans">
@@ -172,10 +479,14 @@ function App() {
           setAlgoParams={setAlgoParams}
 
           isPlaying={isPlaying}
+          isTurbo={isTurbo}
           isFinished={isFinished}
           onPlayPause={togglePlay}
           onStep={step} // Manual step
-          onReset={reset}
+          onRestart={handleRestart}
+          onNewProblem={handleNewProblem}
+          onShowBenchmark={() => setShowBenchmark(true)}
+          onTurbo={toggleTurbo}
           speed={speed}
           setSpeed={setSpeed}
         />
@@ -185,13 +496,13 @@ function App() {
       <div className="flex-grow flex flex-col h-full bg-slate-950">
         {/* Header/Stats Bar */}
         <div className="h-16 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-900">
-          <h1 className="text-xl font-bold">N-Queens Visualization</h1>
+          <h1 className="text-xl font-bold">Algorithm Visualizer</h1>
           <div className="text-slate-400 text-sm font-mono bg-slate-800 px-3 py-1 rounded">
             Note: {algoNote}
           </div>
           <div className="text-sm font-medium">
-            Cost: <span className={currentState?.cost === 0 ? "text-green-400" : "text-red-400"}>
-              {currentState?.cost ?? '-'}
+            Cost: <span className={(currentState?.cost === 0 || (currentState && currentProblem.isSolution(currentState))) ? "text-green-400" : "text-red-400"}>
+              {currentState?.cost ? currentState.cost.toFixed(3) : '-'}
             </span>
           </div>
         </div>
@@ -202,11 +513,21 @@ function App() {
           <div className="flex-1 flex items-center justify-center p-8 bg-slate-900 relative">
             {/* If we have population, show grid. Else show single board */}
             {population ? (
+              // For TSP Population, we probably want a specific Grid too? 
+              // Or generic PopulationGrid needs to handle TSPState...
+              // PopulationGrid currently uses Board. Need to make it dynamic.
+              // TODO: Update PopulationGrid to support generic component injection.
               <div className="w-full h-full overflow-auto flex items-center justify-center">
+                {/* Hack for now: If TSP, show simplified population or just best? */}
+                {/* PopulationGrid uses Board internally. We should probably update PopulationGrid to take a component prop or determine it. */}
                 <PopulationGrid population={population} bestState={currentState} />
               </div>
             ) : (
-              <Board state={currentState} />
+              selectedProblemId === 'tsp'
+                ? <TSPBoard state={currentState} />
+                : (selectedProblemId === 'sudoku'
+                  ? <SudokuBoard state={currentState} />
+                  : <NQueensBoard state={currentState} />)
             )}
           </div>
 
@@ -216,12 +537,24 @@ function App() {
               history={history}
               currentCost={currentState?.cost}
               bestCost={Math.min(...history)}
+              optimalCost={optimalCost}
               stepCount={stepCount}
               evaluations={evaluations}
+              formatCost={currentProblem.formatCost}
+              searchSpace={searchSpace}
             />
           </div>
         </div>
       </div>
+
+      <BenchmarkModal
+        isOpen={showBenchmark}
+        onClose={() => setShowBenchmark(false)}
+        onRun={handleRunBenchmark}
+        isRunning={benchmarkRunner && benchmarkRunner.isRunning}
+        progress={benchmarkProgress}
+        results={benchmarkResults}
+      />
     </div>
   );
 }

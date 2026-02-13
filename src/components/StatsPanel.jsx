@@ -21,7 +21,10 @@ ChartJS.register(
     Legend
 );
 
-const StatsPanel = ({ history, currentCost, bestCost, stepCount, evaluations }) => {
+const StatsPanel = ({ history, currentCost, bestCost, optimalCost, stepCount, evaluations, formatCost, searchSpace }) => {
+    // Default formatter if not provided
+    const fmt = formatCost || ((c) => (c !== undefined && c !== null) ? c.toFixed(2) : '-');
+
     const data = {
         labels: history.map((_, i) => i),
         datasets: [
@@ -67,22 +70,44 @@ const StatsPanel = ({ history, currentCost, bestCost, stepCount, evaluations }) 
 
     return (
         <div className="flex flex-col h-full bg-slate-800 p-4 rounded-lg shadow-lg">
-            <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="bg-slate-700 p-3 rounded text-center">
-                    <div className="text-xs text-slate-400 uppercase">Current Cost</div>
-                    <div className="text-2xl font-bold text-white">{currentCost ?? '-'}</div>
+            {/* Top Row: Costs */}
+            <div className="grid grid-cols-3 gap-2 mb-2">
+                <div className="bg-slate-700 p-2 rounded text-center">
+                    <div className="text-xs text-slate-400 uppercase">Current</div>
+                    <div className="text-xl font-bold text-white">
+                        {fmt(currentCost)}
+                    </div>
                 </div>
-                <div className="bg-slate-700 p-3 rounded text-center">
+                <div className="bg-slate-700 p-2 rounded text-center">
                     <div className="text-xs text-slate-400 uppercase">Best Found</div>
-                    <div className="text-2xl font-bold text-green-400">{bestCost ?? '-'}</div>
+                    <div className="text-xl font-bold text-green-400">
+                        {fmt(bestCost === Infinity ? null : bestCost)}
+                    </div>
                 </div>
-                <div className="bg-slate-700 p-3 rounded text-center">
+                <div className="bg-slate-700 p-2 rounded text-center">
+                    <div className="text-xs text-slate-400 uppercase">Target</div>
+                    <div className="text-xl font-bold text-blue-300">
+                        {fmt(optimalCost)}
+                    </div>
+                </div>
+            </div>
+
+            {/* Bottom Row: Counters */}
+            <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="bg-slate-700 p-2 rounded text-center">
                     <div className="text-xs text-slate-400 uppercase">Steps</div>
-                    <div className="text-2xl font-bold text-blue-400">{stepCount}</div>
+                    <div className="text-xl font-bold text-blue-400">{stepCount}</div>
                 </div>
-                <div className="bg-slate-700 p-3 rounded text-center">
+                <div className="bg-slate-700 p-2 rounded text-center">
                     <div className="text-xs text-slate-400 uppercase">Evaluations</div>
-                    <div className="text-2xl font-bold text-purple-400">{evaluations ?? 0}</div>
+                    <div className="text-xl font-bold text-purple-400">{evaluations ?? 0}</div>
+                </div>
+                <div className="bg-slate-700 p-2 rounded text-center flex flex-col justify-center">
+                    <div className="text-xs text-slate-400 uppercase">State Space</div>
+                    <div className="text-xs text-slate-500 font-mono mb-1">{searchSpace?.formula}</div>
+                    <div className="text-sm font-bold text-slate-200 font-mono">
+                        {searchSpace?.approx}
+                    </div>
                 </div>
             </div>
 
