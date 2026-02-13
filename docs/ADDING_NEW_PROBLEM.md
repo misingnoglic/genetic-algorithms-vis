@@ -43,6 +43,13 @@ export class MyProblemState {
         return new MyProblemState(...);
     }
 
+    // Required for Efficient SA: Returns a single random neighbor (O(1))
+    // This avoids generating all O(N^2) neighbors when only one is needed.
+    getRandomNeighbor() {
+        // ... generate one random move
+        return new MyProblemState(...);
+    }
+
     // Optional but Recommended: For debugging
     toString() {
         return "representation";

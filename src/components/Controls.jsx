@@ -56,6 +56,7 @@ const Controls = ({
                 >
                     <option value="hillClimbing">Hill Climbing</option>
                     <option value="stochasticHillClimbing">Stochastic Hill Climbing</option>
+                    <option value="localBeamSearch">Local Beam Search</option>
                     <option value="simulatedAnnealing">Simulated Annealing</option>
                     <option value="geneticAlgorithm">Genetic Algorithm</option>
                 </select>
@@ -63,7 +64,7 @@ const Controls = ({
 
             {/* Algorithm Specific Params */}
             <div className="space-y-4 border-t border-slate-700 pt-4">
-                {(algorithm === 'hillClimbing' || algorithm === 'stochasticHillClimbing') && (
+                {(algorithm === 'hillClimbing' || algorithm === 'stochasticHillClimbing' || algorithm === 'localBeamSearch') && (
                     <>
                         <div className="space-y-2">
                             <label className="text-xs font-semibold uppercase text-slate-400">Max Sideways Moves</label>
@@ -96,6 +97,32 @@ const Controls = ({
                                 onChange={(e) => handleAlgoParamChange('maxRestarts', parseInt(e.target.value))}
                                 className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
                             />
+                        </div>
+                    </>
+                )}
+
+                {algorithm === 'localBeamSearch' && (
+                    <>
+                        <div className="space-y-2">
+                            <label className="text-xs font-semibold uppercase text-slate-400">Beam Width (k)</label>
+                            <input
+                                type="number"
+                                min="1"
+                                value={algoParams.beamWidth || 5}
+                                onChange={(e) => handleAlgoParamChange('beamWidth', parseInt(e.target.value))}
+                                className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-semibold uppercase text-slate-400">Variant</label>
+                            <select
+                                value={algoParams.variant || 'white'}
+                                onChange={(e) => handleAlgoParamChange('variant', e.target.value)}
+                                className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                            >
+                                <option value="deterministic">Deterministic (Best k)</option>
+                                <option value="stochastic">Stochastic (Weighted)</option>
+                            </select>
                         </div>
                     </>
                 )}
@@ -180,7 +207,7 @@ const Controls = ({
                     </div>
                     <input
                         type="range"
-                        min="10" max="1000" step="10"
+                        min="1" max="1000" step="10"
                         value={speed}
                         onChange={(e) => setSpeed(parseInt(e.target.value))}
                         className="w-full accent-blue-500" // reversed direction visual logic needed? usually left is slow (high delay)

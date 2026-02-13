@@ -86,6 +86,22 @@ export class NQueensState {
         return neighbors;
     }
 
+    // Generate a single random neighbor (O(1) compared to getNeighbors O(N^2))
+    getRandomNeighbor() {
+        const row = Math.floor(Math.random() * this.size);
+        const originalCol = this.queens[row];
+        let col = Math.floor(Math.random() * this.size);
+
+        // Ensure we actually change the column
+        while (col === originalCol) {
+            col = Math.floor(Math.random() * this.size);
+        }
+
+        const newQueens = [...this.queens];
+        newQueens[row] = col;
+        return new NQueensState(this.size, newQueens);
+    }
+
     // Helper to deep copy
     clone() {
         return new NQueensState(this.size, this.queens);

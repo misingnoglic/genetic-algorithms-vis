@@ -78,8 +78,8 @@ function App() {
       // Merge params
       const fullParams = { ...algoParams, ...problemParams };
 
-      if (algorithm === 'geneticAlgorithm') {
-        // GA creates its own population but we pass just params AND problem instance
+      if (algorithm === 'geneticAlgorithm' || algorithm === 'localBeamSearch') {
+        // GA and Beam Search create their own population but we pass just params AND problem instance
         gen = Algorithms[algorithm](null, fullParams, currentProblem);
       } else {
         gen = Algorithms[algorithm](currentState, fullParams);
@@ -198,14 +198,15 @@ function App() {
 
         {/* Workspace */}
         <div className="flex-grow flex p-6 gap-6 overflow-hidden">
-          {/* Board Area - Conditional Render */}
-          <div className="flex-grow flex items-center justify-center bg-slate-900/50 rounded-xl border border-slate-800 overflow-hidden relative">
+          {/* Visualization Area */}
+          <div className="flex-1 flex items-center justify-center p-8 bg-slate-900 relative">
+            {/* If we have population, show grid. Else show single board */}
             {population ? (
-              <div className="absolute inset-0 w-full h-full">
-                <PopulationGrid population={population} />
+              <div className="w-full h-full overflow-auto flex items-center justify-center">
+                <PopulationGrid population={population} bestState={currentState} />
               </div>
             ) : (
-              currentState && <Board state={currentState} />
+              <Board state={currentState} />
             )}
           </div>
 

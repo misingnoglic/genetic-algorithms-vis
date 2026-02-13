@@ -97,7 +97,9 @@ export const Algorithms = {
                     // Generate neighbors randomly until better found or max attempts reached
                     // "First-choice hill climbing implements stochastic hill climbing by generating successors randomly until one is generated that is better"
                     // We need a limit to prevent infinite loops if local optima
-                    const MAX_ATTEMPTS = current.size * current.size; // reasonable limit
+                    // Use a higher multiplier to ensure we don't miss sideways moves too easily
+                    const MAX_ATTEMPTS = current.size * current.size * 5;
+                    let firstSideways = null;
 
                     for (let i = 0; i < MAX_ATTEMPTS; i++) {
                         evaluations++; // Count each check
@@ -118,7 +120,34 @@ export const Algorithms = {
                         if (neighbor.cost < current.cost) {
                             nextState = neighbor;
                             moveType = 'Improved';
+                            // console.log('[FirstChoice] Found better neighbor');
                             break;
+                        } else if (neighbor.cost === current.cost && !firstSideways) {
+                            firstSideways = neighbor;
+                            // console.log('[FirstChoice] Found sideways candidate');
+                        }
+                    }
+
+                    // If no improvement found, try sideways
+                    if (!nextState && firstSideways && sidewaysMoves < maxSideways) {
+                        nextState = firstSideways;
+                        moveType = 'Sideways';
+                    } else if (!nextState && !firstSideways) {
+                        // Force 'Stuck' yield with more info if we are about to restart
+                        if (restarts < maxRestarts) {
+                            yield { state: current, note: `Stuck (Checked ${MAX_ATTEMPTS}, No moves) - Restarting...`, restartCount: restarts, evaluations };
+                            restarts++;
+                            current = NQueensState.randomState(initialState.size);
+                            evaluations++;
+                            continue; // Skip the outer loop yield
+                        }
+                    } else if (!nextState && firstSideways && sidewaysMoves >= maxSideways) {
+                        if (restarts < maxRestarts) {
+                            yield { state: current, note: `Stuck (Sideways limit ${maxSideways}) - Restarting...`, restartCount: restarts, evaluations };
+                            restarts++;
+                            current = NQueensState.randomState(initialState.size);
+                            evaluations++;
+                            continue;
                         }
                     }
                     // Sideways not typically compatible with pure First Choice in strict definition, 
@@ -210,8 +239,7 @@ export const Algorithms = {
             }
 
             // Random neighbor
-            const neighbors = current.getNeighbors();
-            const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+            const next = current.getRandomNeighbor();
             evaluations++; // Count 1 check
 
             const deltaE = current.cost - next.cost; // Positive if next is better (lower cost)
@@ -220,9 +248,10 @@ export const Algorithms = {
                 current = next;
                 yield { state: current, note: `T=${temp.toFixed(2)} (Improved)`, evaluations };
             } else {
-                // Probability loop
-                const prob = Math.exp(deltaE / temp);
-                if (Math.random() < prob) {
+                // Worse move. Accept with probability exp(deltaE / T)
+                // deltaE is negative here.
+                const probability = Math.exp(deltaE / temp);
+                if (Math.random() < probability) {
                     current = next;
                     yield { state: current, note: `T=${temp.toFixed(2)} (Accepted worse)`, evaluations };
                 } else {
@@ -231,7 +260,155 @@ export const Algorithms = {
                 }
             }
 
+            // Cool down
             temp *= coolingRate;
+
+            // If temperature gets too low and we haven't found a solution, reheat or restart
+            if (temp < 0.01) {
+                if (current.cost > 0) {
+                    // Reheat logic could be: temp = initialTemp;
+                    // But let's do a hard restart to escape deep local optima
+                    yield { state: current, note: 'Frozen - Restarting...', evaluations };
+                    current = NQueensState.randomState(initialState.size);
+                    temp = initialTemp;
+                } else {
+                    // Should have been caught by cost === 0 check, but just in case
+                    return;
+                }
+            }
+        }
+    },
+
+    localBeamSearch: function* (dummyState, params = {}, problem) {
+        const { beamWidth = 5, variant = 'deterministic', maxGenerations = 1000, maxSideways = 0, maxRestarts = 0 } = params;
+        let evaluations = 0;
+        let restarts = 0;
+
+        while (true) { // Restart loop
+
+            // Initialize K random states
+            let population = [];
+            for (let i = 0; i < beamWidth; i++) {
+                const state = problem.randomState(params);
+                state.metadata = { status: 'New' };
+                population.push(state);
+                evaluations++;
+            }
+
+            // Initial Yield
+            population.sort((a, b) => a.cost - b.cost);
+            let best = population[0];
+            let sidewaysMoves = 0;
+
+            yield {
+                state: best,
+                population,
+                note: restarts > 0 ? `Beam Init(Restart #${restarts})` : `Beam Init(k = ${beamWidth})`,
+                populationStats: { size: population.length, avgCost: avgCost(population) },
+                restartCount: restarts,
+                evaluations
+            };
+
+            // Generation Loop
+            // We use a label to break out to the restart loop
+            let stuck = false;
+
+            for (let gen = 1; gen <= maxGenerations; gen++) {
+                // Check if current best is solution
+                if (best.cost === 0) {
+                    yield { state: best, population, note: `Solution Found!`, evaluations, restartCount: restarts };
+                    return;
+                }
+
+                // Generate all successors
+                let allSuccessors = [];
+                for (const parent of population) {
+                    const neighbors = parent.getNeighbors();
+                    evaluations += neighbors.length;
+                    allSuccessors.push(...neighbors);
+                }
+
+                if (allSuccessors.length === 0) {
+                    stuck = true; break;
+                }
+
+                let nextPopulation = [];
+
+                if (variant === 'stochastic') {
+                    // ... (keep stochastic logic) ...
+                    // Re-implementing short version for replacement context
+                    const beta = 1;
+                    const weights = allSuccessors.map(s => Math.exp(-beta * s.cost));
+                    const totalWeight = weights.reduce((a, b) => a + b, 0);
+
+                    for (let k = 0; k < beamWidth; k++) {
+                        let r = Math.random() * totalWeight;
+                        let selected = null;
+                        for (let i = 0; i < allSuccessors.length; i++) {
+                            r -= weights[i];
+                            if (r <= 0) {
+                                selected = allSuccessors[i];
+                                break;
+                            }
+                        }
+                        if (!selected) selected = allSuccessors[allSuccessors.length - 1];
+                        selected.metadata = { status: 'Selected' };
+                        nextPopulation.push(selected);
+                    }
+                } else {
+                    // Deterministic: Select k best
+                    allSuccessors.sort((a, b) => a.cost - b.cost);
+                    nextPopulation = allSuccessors.slice(0, beamWidth);
+                    nextPopulation.forEach(p => p.metadata = { status: 'Best' });
+                }
+
+                // Update Population
+                population = nextPopulation;
+                population.sort((a, b) => a.cost - b.cost);
+                const newBest = population[0];
+
+                // Check Progress / Sideways
+                let note = '';
+                if (newBest.cost < best.cost) {
+                    sidewaysMoves = 0;
+                    note = `Gen ${gen} Improved: ${newBest.cost} `;
+                } else {
+                    sidewaysMoves++;
+                    note = `Gen ${gen} Sideways(${sidewaysMoves} / ${maxSideways})`;
+                }
+
+                best = newBest;
+
+                yield {
+                    state: best,
+                    population,
+                    note: note,
+                    populationStats: { size: population.length, avgCost: avgCost(population) },
+                    restartCount: restarts,
+                    evaluations
+                };
+
+                if (best.cost === 0) {
+                    yield { state: best, population, note: `Solution Found!`, evaluations, restartCount: restarts };
+                    return;
+                }
+
+                if (sidewaysMoves >= maxSideways) {
+                    stuck = true;
+                    break;
+                }
+            }
+
+            if (stuck || evaluations > 0) { // If loop finished or stuck
+                if (restarts < maxRestarts) {
+                    yield { state: best, population, note: 'Stuck/Limit - Restarting...', restartCount: restarts, evaluations };
+                    restarts++;
+                    // Loop continues to re-init
+                } else {
+                    yield { state: best, population, note: 'Stuck (Max Restarts Reached)', restartCount: restarts, evaluations };
+                    return;
+                }
+            }
         }
     },
 
@@ -266,14 +443,14 @@ export const Algorithms = {
         yield {
             state: best,
             population: population, // Yield full population
-            note: `Gen 0 Best: ${best.cost}`,
+            note: `Gen 0 Best: ${best.cost} `,
             populationStats: { size: population.length, avgCost: avgCost(population) },
             evaluations
         };
 
         for (let gen = 1; gen <= maxGenerations; gen++) {
             if (best.cost === 0) {
-                yield { state: best, population, note: `Solution in Gen ${gen - 1}`, evaluations };
+                yield { state: best, population, note: `Solution in Gen ${gen - 1} `, evaluations };
                 return;
             }
 
@@ -329,7 +506,7 @@ export const Algorithms = {
             yield {
                 state: best,
                 population: population,
-                note: `Gen ${gen} Best: ${best.cost}`,
+                note: `Gen ${gen} Best: ${best.cost} `,
                 populationStats: { size: population.length, avgCost: avgCost(population) },
                 evaluations
             };
