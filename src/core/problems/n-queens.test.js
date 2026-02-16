@@ -81,7 +81,7 @@ describe('N-Queens Logic', () => {
 
     describe('NQueensProblem', () => {
         it('crossover (uniform) should mix genes from parents', () => {
-            // Force 3 parents for uniform check
+            // ... existing test ...
             const p1 = new NQueensState(4, [0, 0, 0, 0]);
             const p2 = new NQueensState(4, [1, 1, 1, 1]);
             const p3 = new NQueensState(4, [2, 2, 2, 2]);
@@ -94,16 +94,25 @@ describe('N-Queens Logic', () => {
         });
 
         it('mutate should modify state with high rate', () => {
-            const state = new NQueensState(10, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // All 0s
-            // Mutate with rate 1.0 (always mutate)
-            // Note: Mutate modifies in place
-            // Problem: implementation uses Math.random() < rate. 
-            // If rate is 1, it will always mutate.
+            const state = new NQueensState(10, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
             NQueensProblem.mutate(state, 1.0, { size: 10 });
-
-            // Extremely likely to not be all 0s anymore
             const isAllZeros = state.queens.every(q => q === 0);
             expect(isAllZeros).toBe(false);
+        });
+
+        // [New Test] Heuristic Support
+        it('getUnassignedVariables should return all unassigned rows', () => {
+            // State: queens placed on Row 0 and Row 1 only, rows 2 and 3 are null
+            const state = new NQueensState(4, [1, 3, null, null]);
+
+            const unassigned = NQueensProblem.getUnassignedVariables(state);
+            expect(unassigned).toHaveLength(2);
+            expect(unassigned).toContain(2);
+            expect(unassigned).toContain(3);
+
+            // Full state
+            const full = new NQueensState(4, [1, 3, 0, 2]);
+            expect(NQueensProblem.getUnassignedVariables(full)).toHaveLength(0);
         });
     });
 });

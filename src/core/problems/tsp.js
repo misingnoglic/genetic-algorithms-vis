@@ -295,5 +295,14 @@ export const TSPProblem = {
             formula: '(N-1)!/2',
             approx: `${mantissa.toFixed(2)}e+${exponent}`
         };
+    },
+
+    supportsCSP: false,
+
+    extractInstanceParams: (state) => {
+        if (state && state.cities) {
+            return { cities: state.cities };
+        }
+        return {};
     }
 };

@@ -80,6 +80,28 @@ describe('Algorithms (Generic)', () => {
             }
             expect(lastState.cost).toBe(0);
         });
+
+        // [New Test] Sideways Tolerance
+        it('should accept worse moves within tolerance (TSP Behavior)', () => {
+            // Construct a local optimum at 10, but 11 is slightly worse (within tolerance) leading to global opt at 15?
+            // Or simpler: Current cost 100. Neighbor 101. Tolerance 0.05 (105). Should accept 101 as Sideways.
+
+            const problem = { ...MockProblem, id: 'tsp' }; // Pretend to be TSP
+            const state = {
+                cost: 100,
+                getNeighbors: () => [{ cost: 101 }],
+                clone: () => ({ cost: 100 })
+            };
+
+            const params = { sidewaysTolerance: 0.02, maxSideways: 1 };
+            const iterator = Algorithms.hillClimbing(state, params, problem);
+
+            const first = iterator.next(); // Initial
+            const second = iterator.next(); // Should be Sideways move to 101
+
+            expect(second.value.state.cost).toBe(101);
+            expect(second.value.note).toContain('Sideways (≈)');
+        });
     });
 
     describe('stochasticHillClimbing', () => {
@@ -114,15 +136,6 @@ describe('Algorithms (Generic)', () => {
             expect(getT(first.note)).toBe(100);
 
             const second = iterator.next().value;
-            // T might stay same if check was rejected or accepted, but eventually drops
-            // Actually implementation cools AFTER yield check/move.
-            // Wait, implementation:
-            // yield T
-            // ... move ...
-            // yield T (Improved/Worse)
-            // cool
-
-            // Let's just check it runs
             expect(second).toBeDefined();
         });
     });
@@ -161,6 +174,37 @@ describe('Algorithms (Generic)', () => {
             const first = iterator.next().value;
             expect(first.population).toHaveLength(3);
         });
-    });
 
+        // [New Test] Fixed Termination Bug
+        it('should stop after maxSideways on a plateau', () => {
+            // Mock a problem where all states have cost 10 (Plateau)
+            const PlateauState = class {
+                constructor() { this.cost = 10; }
+                getNeighbors() { return [new PlateauState()]; }
+                clone() { return new PlateauState(); }
+                toString() { return '10'; }
+            };
+            const PlateauProblem = {
+                randomState: () => new PlateauState(),
+                isSolution: () => false
+            };
+
+            const params = { beamWidth: 1, maxSideways: 3, maxGenerations: 100 };
+            const iterator = Algorithms.localBeamSearch(null, params, PlateauProblem);
+
+            let steps = 0;
+            let lastNote = '';
+            while (true) {
+                const res = iterator.next();
+                if (res.done) break;
+                lastNote = res.value.note;
+                steps++;
+                if (steps > 20) break; // Fail prevention
+            }
+
+            // Init + 3 updates + Final return? roughly 5-6 steps
+            expect(steps).toBeLessThan(15);
+            expect(lastNote).toContain('Stuck');
+        });
+    });
 });

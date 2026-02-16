@@ -13,14 +13,15 @@ const NQueensBoard = ({ state, small }) => {
             <svg viewBox={`0 0 ${size * 10} ${size * 10}`} className="w-full h-full block">
                 <rect width="100%" height="100%" fill="#1e293b" />
                 {queens.map((col, row) => (
-                    <circle
-                        key={row}
-                        cx={col * 10 + 5}
-                        cy={row * 10 + 5}
-                        r={3}
-                        // Highlight collisions if method exists, else grey
-                        fill={state.getAttackingQueens?.().has(row) ? "#ef4444" : "#e2e8f0"}
-                    />
+                    col !== null && col !== undefined ? (
+                        <circle
+                            key={row}
+                            cx={col * 10 + 5}
+                            cy={row * 10 + 5}
+                            r={3}
+                            fill={state.getAttackingQueens?.().has(row) ? "#ef4444" : "#e2e8f0"}
+                        />
+                    ) : null
                 ))}
             </svg>
         );
@@ -40,7 +41,7 @@ const NQueensBoard = ({ state, small }) => {
         // 1. Is there a queen here?
         // Note: queens array might be partial.
         // queens[row] is the col index.
-        const hasQueen = queens[row] === col;
+        const hasQueen = queens[row] !== null && queens[row] !== undefined && queens[row] === col;
 
         const isAttacking = hasQueen && attackingQueens.has(row);
 
@@ -50,7 +51,7 @@ const NQueensBoard = ({ state, small }) => {
         let showDomain = false;
 
         // Only show domains for unassigned rows
-        if (state.domains && queens[row] === undefined) {
+        if (state.domains && (queens[row] === undefined || queens[row] === null)) {
             showDomain = true;
             // domains[row] is array of valid cols
             if (state.domains[row] && state.domains[row].includes(col)) {
@@ -60,7 +61,7 @@ const NQueensBoard = ({ state, small }) => {
 
         // Check if this unassigned row has an empty domain (Cause of pruning?)
         const isEmptyDomainRow = state.domains &&
-            queens[row] === undefined &&
+            (queens[row] === undefined || queens[row] === null) &&
             state.domains[row] &&
             state.domains[row].length === 0;
 

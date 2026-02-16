@@ -1,16 +1,32 @@
+import React from 'react';
 import NQueensBoard from './boards/NQueensBoard';
 import TSPBoard from './boards/TSPBoard';
 import SudokuBoard from './boards/SudokuBoard';
+import MapColoringBoard from './boards/MapColoringBoard';
 
-const PopulationGrid = ({ population }) => {
+// Board component registry for fallback detection
+const BOARD_COMPONENTS = {
+    NQueensBoard,
+    TSPBoard,
+    SudokuBoard,
+    MapColoringBoard
+};
+
+function detectBoardComponent(individual) {
+    if (individual.tour) return TSPBoard;
+    if (individual.grid) return SudokuBoard;
+    if (individual.graph) return MapColoringBoard;
+    return NQueensBoard;
+}
+
+const PopulationGrid = ({ population, BoardComponent: ProvidedBoard }) => {
     if (!population) return null;
 
     return (
         <div className="grid grid-cols-5 gap-2 p-2 overflow-y-auto w-full h-full content-start">
             {population.map((individual, idx) => {
-                let BoardComponent = NQueensBoard;
-                if (individual.tour) BoardComponent = TSPBoard;
-                else if (individual.grid) BoardComponent = SudokuBoard;
+                // Use provided board component, or auto-detect
+                const BoardComponent = ProvidedBoard || detectBoardComponent(individual);
 
                 // Determine border color based on status
                 let borderColor = 'border-slate-600';

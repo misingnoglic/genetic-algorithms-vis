@@ -1,21 +1,27 @@
 export class NQueensState {
     constructor(size, queens = null, domains = null) {
         this.size = size;
-        // queens[row] = col
-        // If queens is passed, use it. If not, and we are NOT partial (standard local search init), random.
-        // But for constructive search, we might want empty.
-        // Let's assume if queens is passed, we use it. If null, we generate random full state (Local Search Default).
-        // To create empty state: pass [].
+        // queens[row] = col (number) or null (unassigned)
+        // Fixed-size array of length N. null = no queen on that row.
         if (queens) {
             this.queens = [...queens];
         } else {
             this.queens = NQueensState.randomState(size).queens;
         }
 
-        // Domains: Array of Arrays/Sets. domains[row] = set of valid cols.
+        // Domains: Array of Arrays. domains[row] = array of valid cols.
         // Only relevant for CSP/Constructive.
         this.domains = domains;
         this.cachedCost = null;
+    }
+
+    // Helper: count of assigned (non-null) queens
+    get placedCount() {
+        let count = 0;
+        for (let i = 0; i < this.size; i++) {
+            if (this.queens[i] !== null && this.queens[i] !== undefined) count++;
+        }
+        return count;
     }
 
     static randomState(size) {
@@ -26,15 +32,14 @@ export class NQueensState {
         return new NQueensState(size, queens);
     }
 
-    // For Constructive Search: Empty State
+    // For Constructive Search: Empty State (all nulls)
     static emptyState(size) {
-        // Initial domains: All cols valid for all rows (if tracking domains)
-        return new NQueensState(size, []);
+        return new NQueensState(size, Array(size).fill(null));
     }
 
     // Check if state is partial
     get isPartial() {
-        return this.queens.length < this.size;
+        return this.placedCount < this.size;
     }
 
     // Calculate number of pairs of queens that are attacking each other
@@ -43,11 +48,21 @@ export class NQueensState {
         if (this.cachedCost !== null) return this.cachedCost;
 
         let attacks = 0;
+        const n = this.size;
 
-        // 1. Calculate actual attacks among placed queens
-        const placedCount = this.queens.length;
-        for (let i = 0; i < placedCount; i++) {
-            for (let j = i + 1; j < placedCount; j++) {
+        // Collect assigned rows
+        const assigned = [];
+        for (let i = 0; i < n; i++) {
+            if (this.queens[i] !== null && this.queens[i] !== undefined) {
+                assigned.push(i);
+            }
+        }
+
+        // Calculate attacks among placed queens
+        for (let a = 0; a < assigned.length; a++) {
+            for (let b = a + 1; b < assigned.length; b++) {
+                const i = assigned[a];
+                const j = assigned[b];
                 // Same column
                 if (this.queens[i] === this.queens[j]) {
                     attacks++;
@@ -62,13 +77,9 @@ export class NQueensState {
             }
         }
 
-        // 2. Penalty for partial state
-        // If we want partial states to look "bad" compared to complete solutions
-        // Add a penalty per unassigned row.
-        // But for BFS goal test, we assume cost==0 AND !isPartial.
-        // For visualization stats:
+        // Penalty for partial state
         if (this.isPartial) {
-            attacks += (this.size - placedCount) * 1000;
+            attacks += (this.size - assigned.length) * 1000;
         }
 
         this.cachedCost = attacks;
@@ -78,22 +89,30 @@ export class NQueensState {
     // Returns a Set of row indices of queens that are under attack
     getAttackingQueens() {
         const attackedRows = new Set();
-        const placedCount = this.queens.length;
-        for (let i = 0; i < placedCount; i++) {
-            for (let j = i + 1; j < placedCount; j++) {
+        const n = this.size;
+
+        // Collect assigned rows
+        const assigned = [];
+        for (let i = 0; i < n; i++) {
+            if (this.queens[i] !== null && this.queens[i] !== undefined) {
+                assigned.push(i);
+            }
+        }
+
+        for (let a = 0; a < assigned.length; a++) {
+            for (let b = a + 1; b < assigned.length; b++) {
+                const i = assigned[a];
+                const j = assigned[b];
                 let isAttacking = false;
-                // Same column
                 if (this.queens[i] === this.queens[j]) {
                     isAttacking = true;
                 } else {
-                    // Diagonal
                     const deltaRow = Math.abs(i - j);
                     const deltaCol = Math.abs(this.queens[i] - this.queens[j]);
                     if (deltaRow === deltaCol) {
                         isAttacking = true;
                     }
                 }
-
                 if (isAttacking) {
                     attackedRows.add(i);
                     attackedRows.add(j);
@@ -235,6 +254,8 @@ export const NQueensProblem = {
         };
     },
 
+    supportsCSP: true,
+
     // --- CSP Interface ---
 
     initializeDomains: (state) => {
@@ -244,9 +265,29 @@ export const NQueensProblem = {
     },
 
     selectUnassignedVariable: (state) => {
-        // Next row to place
-        if (state.queens.length < state.size) return state.queens.length;
+        // Fallback: first unassigned row (in-order)
+        for (let r = 0; r < state.size; r++) {
+            if (state.queens[r] === null || state.queens[r] === undefined) return r;
+        }
         return null;
+    },
+
+    getUnassignedVariables: (state) => {
+        // Return all rows that have no queen assigned (null)
+        const unassigned = [];
+        for (let r = 0; r < state.size; r++) {
+            if (state.queens[r] === null || state.queens[r] === undefined) {
+                unassigned.push(r);
+            }
+        }
+        return unassigned;
+    },
+
+    getDomainSize: (state, variable) => {
+        if (state.domains && state.domains[variable]) {
+            return state.domains[variable].length;
+        }
+        return state.size; // Fallback: all columns
     },
 
     getDomainValues: (state, variable) => {
@@ -254,8 +295,9 @@ export const NQueensProblem = {
     },
 
     applyMove: (state, variable, value, newDomains) => {
-        // variable is row index
-        const newQueens = [...state.queens, value];
+        // variable is row index, value is column
+        const newQueens = [...state.queens];
+        newQueens[variable] = value;
         return new NQueensState(state.size, newQueens, newDomains);
     },
 
@@ -271,10 +313,13 @@ export const NQueensProblem = {
         // Assign
         nextDomains[row] = [col];
 
-        // Prune future rows
+        // Prune ALL unassigned rows (not just future ones)
         let possible = true;
-        for (let r = row + 1; r < n; r++) {
-            const dist = r - row;
+        for (let r = 0; r < n; r++) {
+            if (r === row) continue;
+            // Skip already-assigned rows (domain is singleton)
+            if (state.queens[r] !== null && state.queens[r] !== undefined) continue;
+            const dist = Math.abs(r - row);
             nextDomains[r] = nextDomains[r].filter(c => {
                 if (c === col) return false; // Same col
                 if (Math.abs(c - col) === dist) return false; // Diagonal

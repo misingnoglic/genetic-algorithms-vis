@@ -1,7 +1,7 @@
 import React from 'react';
 import { X, Play, Trophy, Timer, Activity } from 'lucide-react';
 
-const BenchmarkModal = ({ isOpen, onClose, onRun, isRunning, progress, results, configCount = 0, seedCount = 5 }) => {
+const BenchmarkModal = ({ isOpen, onClose, onRun, isRunning, progress, results }) => {
     if (!isOpen) return null;
 
     return (
@@ -15,7 +15,9 @@ const BenchmarkModal = ({ isOpen, onClose, onRun, isRunning, progress, results, 
                         </div>
                         <div>
                             <h2 className="text-xl font-bold text-white">Algorithm Tournament</h2>
-                            <p className="text-sm text-slate-400">Comparing {configCount} configurations on {seedCount} random seeds</p>
+                            <p className="text-sm text-slate-400">
+                                Comparing {configCount} configurations × {seedCount} random seeds = <span className="text-purple-400 font-bold">{configCount * seedCount} total simulations</span>
+                            </p>
                         </div>
                     </div>
                     {!isRunning && (
@@ -41,7 +43,7 @@ const BenchmarkModal = ({ isOpen, onClose, onRun, isRunning, progress, results, 
                                     />
                                 </div>
                                 <p className="text-center text-xs text-slate-500 pt-2">
-                                    Running 5 seeds × 6 algorithms (Turbo Mode)
+                                    Running {seedCount} seeds × {configCount} algorithms (Turbo Mode)
                                 </p>
                             </div>
                         </div>

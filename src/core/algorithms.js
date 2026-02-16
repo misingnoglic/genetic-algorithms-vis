@@ -44,22 +44,29 @@ export const Algorithms = {
                 // Random tie breaking
                 const next = dataset[Math.floor(Math.random() * dataset.length)];
 
+                // Tolerance logic
+                const tolerance = params.sidewaysTolerance || 0;
+                // Check if strictly better
                 if (next.cost < current.cost) {
                     current = next;
                     sidewaysMoves = 0;
                     yield { state: current, note: 'Improved', restartCount: restarts, evaluations };
-                } else if (next.cost === current.cost) {
-                    if (sidewaysMoves < maxSideways) {
-                        current = next;
-                        sidewaysMoves++;
-                        yield { state: current, note: `Sideways move ${sidewaysMoves}/${maxSideways}`, restartCount: restarts, evaluations };
-                    } else {
-                        // Stuck
-                        break;
-                    }
                 } else {
-                    // Stuck
-                    break;
+                    // Check sideways
+                    const isSideways = next.cost === current.cost || (tolerance > 0 && next.cost <= current.cost * (1 + tolerance));
+
+                    if (isSideways) {
+                        if (sidewaysMoves < maxSideways) {
+                            const type = next.cost === current.cost ? 'Sideways' : 'Sideways (≈)';
+                            current = next;
+                            sidewaysMoves++;
+                            yield { state: current, note: `${type} move ${sidewaysMoves}/${maxSideways}`, restartCount: restarts, evaluations };
+                        } else {
+                            break; // Stuck (limit)
+                        }
+                    } else {
+                        break; // Stuck (worse)
+                    }
                 }
             }
 
@@ -151,6 +158,7 @@ export const Algorithms = {
                     if (betterNeighbors.length > 0) {
                         moveType = 'Improved';
                         if (variant === 'weighted') {
+                            // ... (weighted logic unchanged)
                             // Probability proportional to steepness (improvement)
                             const improvements = betterNeighbors.map(n => current.cost - n.cost);
                             const totalImprovement = improvements.reduce((a, b) => a + b, 0);
@@ -170,10 +178,35 @@ export const Algorithms = {
                             // Standard: Random better neighbor
                             nextState = betterNeighbors[Math.floor(Math.random() * betterNeighbors.length)];
                         }
-                    } else if (equalNeighbors.length > 0 && sidewaysMoves < maxSideways) {
-                        // Sideways allowed in these modes if configured
-                        nextState = equalNeighbors[Math.floor(Math.random() * equalNeighbors.length)];
-                        moveType = 'Sideways';
+                    } else {
+                        // Check for Sideways (with tolerance)
+                        // Note: equalNeighbors uses strict equality. We need to filter based on tolerance.
+                        // Re-filter neighbors based on tolerance logic if no better neighbors found.
+
+                        const tolerance = params.sidewaysTolerance || 0; // percentage e.g. 0.05
+                        const threshold = current.cost * (1 + tolerance);
+
+                        // Better neighbors were already improved.
+                        // Now look for "Sideways" candidates: cost > current.cost but <= threshold
+                        // AND strictly equal neighbors (cost === current.cost)
+
+                        // Actually, 'betterNeighbors' covered strictly better.
+                        // We strictly want: cost >= current.cost AND cost <= threshold.
+                        // But usually we just want "not worse than threshold".
+                        // If tolerance is 0, we only accept equal.
+
+                        const sidewaysCandidates = neighbors.filter(n => {
+                            if (n.cost < current.cost) return false; // Already handled (better)
+                            if (n.cost === current.cost) return true; // Strictly equal
+                            // Tolerance check (for TSP)
+                            if (tolerance > 0 && n.cost <= threshold) return true;
+                            return false;
+                        });
+
+                        if (sidewaysCandidates.length > 0 && sidewaysMoves < maxSideways) {
+                            nextState = sidewaysCandidates[Math.floor(Math.random() * sidewaysCandidates.length)];
+                            moveType = nextState.cost === current.cost ? 'Sideways' : 'Sideways (≈)';
+                        }
                     }
                 }
 

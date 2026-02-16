@@ -75,10 +75,10 @@ export const BENCHMARK_CONFIGS = [
     }
 ];
 
-export const getValidConfigs = (problemId) => {
+export const getValidConfigs = (problemId, problem) => {
     return BENCHMARK_CONFIGS.filter(c => {
-        // TSP does not support CSP algorithms
-        if (problemId === 'tsp') {
+        // If the problem doesn't support CSP, filter out CSP algorithms
+        if (problem && !problem.supportsCSP) {
             return !['backtracking', 'forwardChecking', 'arcConsistency'].includes(c.algorithm);
         }
         return true;
@@ -102,7 +102,7 @@ export class BenchmarkRunner {
         this.cancelFlag = false;
 
         // Filter configs based on problem compatibility
-        const validConfigs = getValidConfigs(this.problem.id);
+        const validConfigs = getValidConfigs(this.problem.id, this.problem);
 
         const numSeeds = 5;
         const totalRuns = numSeeds * validConfigs.length;
@@ -154,22 +154,12 @@ export class BenchmarkRunner {
                 // Wait, emptyState(params) uses params.cities!
                 // So we MUST ensure params.cities is set from seedState for TSP.
 
-                if (this.problem.id === 'tsp' && seedState.cities) {
-                    params.cities = seedState.cities;
+                // Generic instance params extraction
+                if (this.problem.extractInstanceParams) {
+                    Object.assign(params, this.problem.extractInstanceParams(seedState));
                 }
 
-                // For Sudoku, seedState holds the 'fixed' mask and 'grid'.
-                // We pass seedState as 'initialState' (1st arg).
-                // Constructive algos check 1st arg for Sudoku puzzle def.
-                // So passing seedState is correct for Sudoku.
-
                 if (config.algorithm === 'geneticAlgorithm' || config.algorithm === 'localBeamSearch') {
-                    if (seedState.cities) params.cities = seedState.cities;
-                    if (this.problem.id === 'sudoku') {
-                        // GA/Beam need puzzle def too
-                        params.initialGrid = seedState.grid;
-                        params.fixedMask = seedState.fixed;
-                    }
                     gen = Algorithms[config.algorithm](null, params, this.problem);
                 } else {
                     gen = Algorithms[config.algorithm](seedState, params, this.problem);

@@ -6,9 +6,15 @@ import { Algorithms } from './algorithms.js';
 // Helper to get successors for N-Queens
 // Returns array of next states (adding 1 queen)
 const getNQueensSuccessors = (state, params) => {
-    // Determine next row to place
-    const nextRow = state.queens.length;
-    if (nextRow >= state.size) return []; // Full
+    // Find first unassigned (null) row
+    let nextRow = -1;
+    for (let r = 0; r < state.size; r++) {
+        if (state.queens[r] === null || state.queens[r] === undefined) {
+            nextRow = r;
+            break;
+        }
+    }
+    if (nextRow === -1) return []; // Fully assigned
 
     const successors = [];
     // Try all columns
@@ -21,26 +27,17 @@ const getNQueensSuccessors = (state, params) => {
         for (let c = 0; c < state.size; c++) cols.push(c);
     }
 
-    // Heuristic ordering could go here (e.g. min conflicts)
-    // For standard BFS/DFS, left-to-right (0..N) is fine.
-
     for (const col of cols) {
-        // Create new state
-        const newQueens = [...state.queens, col];
+        // Create new state by setting the column for this row
+        const newQueens = [...state.queens];
+        newQueens[nextRow] = col;
 
-        // For CSP forward checking/AC-3, we might calculate new domains here
         let newDomains = null;
         if (state.domains) {
             newDomains = state.domains.map(d => [...d]); // Deep copy
             newDomains[nextRow] = [col]; // Assigned
         }
 
-        // Construct standard state (we'll filter domains later if specific algo logic)
-        // But simply "Constructive" usually implies just placing. 
-        // Logic for filtering happens inside the algo loop.
-
-        // Wait, NQueensState constructor takes (size, queens, domains).
-        // Let's create the basic successor.
         const successState = new state.constructor(state.size, newQueens, newDomains);
         successors.push(successState);
     }
@@ -120,6 +117,9 @@ const getSudokuSuccessors = (state, params) => {
 };
 
 const getSuccessors = (state, problem, params) => {
+    // Prefer problem-specific getSuccessors method
+    if (problem.getSuccessors) return problem.getSuccessors(state, params);
+    // Legacy fallback
     if (problem.id === 'n-queens') return getNQueensSuccessors(state, params);
     if (problem.id === 'tsp') return getTSPSuccessors(state, params);
     if (problem.id === 'sudoku') return getSudokuSuccessors(state, params);
@@ -137,9 +137,10 @@ export const ConstructiveAlgorithms = {
         // For N-Queens, dummyState is usually partial/full random, so we ignore.
         // For Sudoku, dummyState is the Puzzle.
         let root = problem.emptyState(params);
-        if (dummyState && problem.id === 'sudoku') {
-            // Sanitize: Constructive search must start with clean puzzle (only fixed numbers)
-            // dummyState might be fully filled (random) for local search.
+        if (dummyState && problem.cleanStateForConstructive) {
+            root = problem.cleanStateForConstructive(dummyState);
+        } else if (dummyState && problem.id === 'sudoku') {
+            // Legacy Sudoku handling
             const cleanGrid = dummyState.grid.map((row, r) =>
                 row.map((val, c) => dummyState.fixed[r][c] ? val : 0)
             );
@@ -264,11 +265,12 @@ export const ConstructiveAlgorithms = {
             // Pruning (Constraint Check)
             // This is what makes it "Backtracking" vs "DFS"
             let isValid = true;
-            if (problem.id === 'n-queens') {
+            if (problem.isPartiallyValid) {
+                // Generic constraint check — preferred
+                isValid = problem.isPartiallyValid(current);
+            } else if (problem.id === 'n-queens') {
                 if (current.getAttackingQueens().size > 0) isValid = false;
             } else if (problem.id === 'sudoku') {
-                // Check if the current partial state has ANY conflicts
-                // We use 'conflicts' (hard constraints) not 'cost' (which includes empty cells)
                 if (current.conflicts > 0) isValid = false;
             }
 
@@ -330,8 +332,7 @@ export const ConstructiveAlgorithms = {
             }
 
             // CSP: Select Variable
-            // generic interface: problem.selectUnassignedVariable(state)
-            const variable = problem.selectUnassignedVariable ? problem.selectUnassignedVariable(current) : null;
+            const variable = selectVariable(current, problem, params);
 
             if (variable !== null) {
                 // Get ordered values: problem.getOrdering(state, variable)?
@@ -453,3 +454,70 @@ export const ConstructiveAlgorithms = {
 // AC-3 Helper (Generic Logic moved to Problem or kept here if standarized?)
 // Since constraints are problem specific, 'runAC3' logic usually needs 'getNeighbors' and 'satisfies(ci, cj)'.
 // Best to delegate to problem.propagateAC3.
+
+const selectVariable = (state, problem, params) => {
+    const heuristic = params.variableHeuristic || 'inOrder';
+
+    // Get all unassigned variables
+    // Problem needs to support 'getUnassignedVariables'.
+    // If not, fallback to 'selectUnassignedVariable' (single).
+    if (!problem.getUnassignedVariables) {
+        return problem.selectUnassignedVariable ? problem.selectUnassignedVariable(state) : null;
+    }
+
+    const unassigned = problem.getUnassignedVariables(state);
+    if (unassigned.length === 0) return null;
+
+    if (heuristic === 'inOrder') {
+        return unassigned[0]; // First
+    } else if (heuristic === 'random') {
+        return unassigned[Math.floor(Math.random() * unassigned.length)];
+    } else if (heuristic === 'mrv') {
+        // Most Constrained Variable (Minimum Remaining Values)
+        // We need domain size for each variable.
+        // Assuming problem.getDomainSize(state, var) or state.domains[var].length
+        let best = unassigned[0];
+        let minSize = getDomainSize(state, best, problem);
+
+        for (let i = 1; i < unassigned.length; i++) {
+            const v = unassigned[i];
+            const size = getDomainSize(state, v, problem);
+            if (size < minSize) {
+                minSize = size;
+                best = v;
+            }
+        }
+        return best;
+    } else if (heuristic === 'leastConstrained') {
+        // Least Constrained (Max Remaining Values) - Educational/Bad heuristic
+        let best = unassigned[0];
+        let maxSize = getDomainSize(state, best, problem);
+
+        for (let i = 1; i < unassigned.length; i++) {
+            const v = unassigned[i];
+            const size = getDomainSize(state, v, problem);
+            if (size > maxSize) {
+                maxSize = size;
+                best = v;
+            }
+        }
+        return best;
+    }
+
+    return unassigned[0];
+};
+
+const getDomainSize = (state, variable, problem) => {
+    // Prefer problem-specific getDomainSize (handles Sudoku's {r,c} variables)
+    if (problem.getDomainSize) {
+        return problem.getDomainSize(state, variable);
+    }
+    // Fallback for integer variables (N-Queens)
+    if (state.domains && state.domains[variable]) {
+        return state.domains[variable].length;
+    }
+    if (problem.getDomainValues) {
+        return problem.getDomainValues(state, variable).length;
+    }
+    return 9999;
+};

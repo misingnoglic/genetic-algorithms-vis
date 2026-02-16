@@ -99,6 +99,31 @@ describe('Constructive Algorithms', () => {
             expect(lastState.cost).toBe(0);
             expect(lastState.domains).toBeDefined();
         });
+
+        // [New Test] Heuristics
+        it('should support MRV heuristic', () => {
+            const params = { size: 4, variableHeuristic: 'mrv' };
+            const iterator = ConstructiveAlgorithms.forwardChecking(null, params, NQueensProblem);
+
+            let result = iterator.next();
+            let done = false;
+            while (!result.done) {
+                if (result.value.note === 'Solution Found!') done = true;
+                result = iterator.next();
+            }
+            expect(done).toBe(true);
+        });
+
+        it('should support Random heuristic (runs without error)', () => {
+            const params = { size: 4, variableHeuristic: 'random' };
+            const iterator = ConstructiveAlgorithms.forwardChecking(null, params, NQueensProblem);
+
+            let result = iterator.next();
+            while (!result.done) {
+                result = iterator.next();
+            }
+            expect(result.value).toBe('Solution Found!');
+        });
     });
 
     // Test TSP BFS/DFS just to ensure they run/don't crash (even if slow)

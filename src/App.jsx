@@ -1,22 +1,30 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import NQueensBoard from './components/boards/NQueensBoard';
 import TSPBoard from './components/boards/TSPBoard';
+import SudokuBoard from './components/boards/SudokuBoard';
+import MapColoringBoard from './components/boards/MapColoringBoard';
 import Controls from './components/Controls';
 import StatsPanel from './components/StatsPanel';
 import PopulationGrid from './components/PopulationGrid';
 import { NQueensProblem } from './core/problems/n-queens.js';
 import { TSPProblem } from './core/problems/tsp.js';
+import { SudokuProblem } from './core/problems/sudoku.js';
+import { MapColoringProblem } from './core/problems/map-coloring.js';
 import { Algorithms } from './core/algorithms.js';
 import { BenchmarkRunner } from './core/benchmark.js';
 import BenchmarkModal from './components/BenchmarkModal.jsx';
 
-import { SudokuProblem } from './core/problems/sudoku.js';
-import SudokuBoard from './components/boards/SudokuBoard';
+// Attach board components to problem objects for generic rendering
+NQueensProblem.BoardComponent = NQueensBoard;
+TSPProblem.BoardComponent = TSPBoard;
+SudokuProblem.BoardComponent = SudokuBoard;
+MapColoringProblem.BoardComponent = MapColoringBoard;
 
-const PROBLEM_REGISTRY = {
+export const PROBLEM_REGISTRY = {
   [NQueensProblem.id]: NQueensProblem,
   [TSPProblem.id]: TSPProblem,
-  [SudokuProblem.id]: SudokuProblem
+  [SudokuProblem.id]: SudokuProblem,
+  [MapColoringProblem.id]: MapColoringProblem
 };
 
 const isConstructive = (algo) => {
@@ -91,11 +99,9 @@ function App() {
     // Create runner with CURRENT problem setup
     // Ensure we use a fresh runner
     const params = { ...problemParams };
-    // For TSP, include cities if present in current state? 
-    // Actually BenchmarkRunner logic handles generation.
-    // If we want to benchmark THIS specific graph, we should pass current cities.
-    if (selectedProblemId === TSPProblem.id && currentState && currentState.cities) {
-      params.cities = currentState.cities;
+    // Generic instance params extraction
+    if (currentProblem.extractInstanceParams && currentState) {
+      Object.assign(params, currentProblem.extractInstanceParams(currentState));
     }
 
     const runner = new BenchmarkRunner(currentProblem, params);
@@ -142,31 +148,13 @@ function App() {
     const params = { ...problemParams };
     if (!params.size) params.size = currentProblem.defaultParams.size;
 
-    // Force new cities for TSP if generating new problem
-    if (selectedProblemId === TSPProblem.id) {
-      delete params.cities;
-    }
-
-    // 1. Generate FULL random state first (to Ensure cities/puzzle are created)
+    // 1. Generate FULL random state first (to ensure instance data is created)
     const fullState = currentProblem.randomState(params);
 
-    // 2. Extract definition to params for Empty State creation
-    // We update the local 'params' object which is passed to emptyState
-    // We do NOT update the state 'problemParams' to avoid re-render loops, 
-    // but we ensure the *Problem Instance* data (cities, fixedMask) is preserved in fullState
-    // and can be extracted.
-
-    // Actually, distinct from 'params', let's make a 'defParams'
+    // 2. Extract instance definition from full state for empty state creation
     const defParams = { ...params };
-
-    if (selectedProblemId === TSPProblem.id) {
-      defParams.cities = fullState.cities;
-    }
-    if (selectedProblemId === SudokuProblem.id) {
-      // SudokuProblem.randomState returned a state.
-      // We need the fixed mask from it to define the "Puzzle".
-      defParams.initialGrid = fullState.grid; // Full grid
-      defParams.fixedMask = fullState.fixed;  // Mask
+    if (currentProblem.extractInstanceParams) {
+      Object.assign(defParams, currentProblem.extractInstanceParams(fullState));
     }
 
     // 3. Create Empty State (Display Only)
@@ -229,16 +217,13 @@ function App() {
       let fullParams = { ...algoParams, ...problemParams };
       let current = currentStateRef.current;
 
-      // Ensure we use the cities currently displayed on the board
-      if (selectedProblemId === TSPProblem.id && current && current.cities) {
-        fullParams.cities = current.cities;
-      }
-
-      // Ensure we use the Sudoku puzzle definition (grid/fixed)
-      if (selectedProblemId === SudokuProblem.id && initialState) {
-        // If initialState is the empty puzzle, it has grid/fixed
-        fullParams.initialGrid = initialState.grid;
-        fullParams.fixedMask = initialState.fixed;
+      // Generic instance params extraction from current/initial state
+      if (currentProblem.extractInstanceParams) {
+        if (current) {
+          Object.assign(fullParams, currentProblem.extractInstanceParams(current));
+        } else if (initialState) {
+          Object.assign(fullParams, currentProblem.extractInstanceParams(initialState));
+        }
       }
 
       // AUTO-START CHECKS:
@@ -472,6 +457,8 @@ function App() {
 
           problemId={selectedProblemId}
           setProblemId={setSelectedProblemId}
+          problemRegistry={PROBLEM_REGISTRY}
+          currentProblem={currentProblem}
           problemParams={problemParams}
           setProblemParams={setProblemParams}
 
@@ -482,7 +469,7 @@ function App() {
           isTurbo={isTurbo}
           isFinished={isFinished}
           onPlayPause={togglePlay}
-          onStep={step} // Manual step
+          onStep={step}
           onRestart={handleRestart}
           onNewProblem={handleNewProblem}
           onShowBenchmark={() => setShowBenchmark(true)}
@@ -513,21 +500,14 @@ function App() {
           <div className="flex-1 flex items-center justify-center p-8 bg-slate-900 relative">
             {/* If we have population, show grid. Else show single board */}
             {population ? (
-              // For TSP Population, we probably want a specific Grid too? 
-              // Or generic PopulationGrid needs to handle TSPState...
-              // PopulationGrid currently uses Board. Need to make it dynamic.
-              // TODO: Update PopulationGrid to support generic component injection.
               <div className="w-full h-full overflow-auto flex items-center justify-center">
-                {/* Hack for now: If TSP, show simplified population or just best? */}
-                {/* PopulationGrid uses Board internally. We should probably update PopulationGrid to take a component prop or determine it. */}
-                <PopulationGrid population={population} bestState={currentState} />
+                <PopulationGrid population={population} bestState={currentState} BoardComponent={currentProblem.BoardComponent} />
               </div>
             ) : (
-              selectedProblemId === 'tsp'
-                ? <TSPBoard state={currentState} />
-                : (selectedProblemId === 'sudoku'
-                  ? <SudokuBoard state={currentState} />
-                  : <NQueensBoard state={currentState} />)
+              (() => {
+                const BoardComponent = currentProblem.BoardComponent;
+                return BoardComponent ? <BoardComponent state={currentState} /> : null;
+              })()
             )}
           </div>
 

@@ -484,24 +484,35 @@ export const SudokuProblem = {
         return domains;
     },
 
-    selectUnassignedVariable: (state) => {
-        // MRV Heuristic: Pick empty cell with smallest domain
-        let best = null;
-        let minDom = Infinity;
-
+    getUnassignedVariables: (state) => {
+        const unassigned = [];
         for (let r = 0; r < state.size; r++) {
             for (let c = 0; c < state.size; c++) {
                 if (state.grid[r][c] === 0) {
-                    const len = state.domains ? state.domains[r][c].length : Infinity;
-                    if (len < minDom) {
-                        minDom = len;
-                        best = { r, c };
-                        if (minDom <= 1) return best; // Optimization
-                    }
+                    unassigned.push({ r, c });
                 }
             }
         }
-        return best;
+        return unassigned;
+    },
+
+    getDomainSize: (state, variable) => {
+        const { r, c } = variable;
+        if (state.domains && state.domains[r][c]) {
+            return state.domains[r][c].length;
+        }
+        return 999;
+    },
+
+    selectUnassignedVariable: (state) => {
+        // Default to finding first empty cell (In-Order)
+        // This is used if heuristic is not specified or fallback
+        for (let r = 0; r < state.size; r++) {
+            for (let c = 0; c < state.size; c++) {
+                if (state.grid[r][c] === 0) return { r, c };
+            }
+        }
+        return null;
     },
 
     getDomainValues: (state, variable) => {
@@ -618,6 +629,15 @@ export const SudokuProblem = {
             }
         }
         return true;
+    },
+
+    supportsCSP: true,
+
+    extractInstanceParams: (state) => {
+        return {
+            initialGrid: state.grid,
+            fixedMask: state.fixed,
+        };
     }
 };
 const SudokuGenerator = {

@@ -20,7 +20,9 @@ const Controls = ({
     onTurbo,
     onShowBenchmark,
     speed,
-    setSpeed
+    setSpeed,
+    problemRegistry,
+    currentProblem,
 }) => {
 
     const handleAlgoParamChange = (key, value) => {
@@ -28,16 +30,24 @@ const Controls = ({
     };
 
     const handleProblemParamChange = (key, value) => {
-        setProblemParams(prev => ({ ...prev, [key]: value }));
+        setProblemParams(prev => {
+            const next = { ...prev, [key]: value };
+            // When graph type changes, set a sensible default number of colors
+            if (key === 'graphType') {
+                const colorDefaults = { us: 4, australia: 3, random: 3 };
+                next.numColors = colorDefaults[value] || 3;
+            }
+            return next;
+        });
     };
 
     return (
         <div className="bg-slate-800 p-4 rounded-lg shadow-lg text-slate-200 flex flex-col gap-4 h-full overflow-y-auto">
             <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-                N-Queens Control
+                Algorithm Visualizer
             </h2>
 
-            {/* Global Settings */}
+            {/* Problem Selection */}
             <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase text-slate-400">Problem</label>
                 <select
@@ -46,44 +56,94 @@ const Controls = ({
                     className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
                     disabled={isPlaying}
                 >
-                    <option value="n-queens">N-Queens</option>
-                    <option value="tsp">Traveling Salesperson</option>
-                    <option value="sudoku">Sudoku</option>
+                    {problemRegistry && Object.entries(problemRegistry).map(([id, prob]) => (
+                        <option key={id} value={id}>{prob.name}</option>
+                    ))}
                 </select>
             </div>
 
-            <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase text-slate-400">
-                    {problemId === 'tsp' ? 'Number of Cities' : (problemId === 'sudoku' ? 'Grid Size' : 'Board Size (N)')}
-                </label>
-
-                {problemId === 'sudoku' ? (
+            {/* Map Coloring: Graph Type */}
+            {problemId === 'map-coloring' && currentProblem?.graphTypes && (
+                <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase text-slate-400">Graph Type</label>
                     <select
-                        value={problemParams.size || 9}
-                        onChange={(e) => {
-                            const newSize = parseInt(e.target.value);
-                            const newK = Math.floor(newSize * newSize * 0.60);
-                            setProblemParams(prev => ({ ...prev, size: newSize, removeCount: newK }));
-                        }}
+                        value={problemParams.graphType || 'australia'}
+                        onChange={(e) => handleProblemParamChange('graphType', e.target.value)}
                         className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
                         disabled={isPlaying}
                     >
-                        <option value="3">3x3 (Tiny)</option>
-                        <option value="6">6x6 (Mini)</option>
-                        <option value="9">9x9 (Standard)</option>
-                        <option value="15">15x15 (Giant)</option>
+                        {Object.entries(currentProblem.graphTypes).map(([key, label]) => (
+                            <option key={key} value={key}>{label}</option>
+                        ))}
                     </select>
-                ) : (
+                </div>
+            )}
+
+            {/* Map Coloring: Number of Colors */}
+            {problemId === 'map-coloring' && (
+                <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase text-slate-400">Number of Colors</label>
                     <input
                         type="number"
-                        min="4" max={problemId === 'tsp' ? "50" : "20"}
-                        value={problemParams.size || (problemId === 'tsp' ? 20 : 8)}
+                        min="2" max="8"
+                        value={problemParams.numColors || 3}
+                        onChange={(e) => handleProblemParamChange('numColors', parseInt(e.target.value))}
+                        className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                        disabled={isPlaying}
+                    />
+                </div>
+            )}
+
+            {/* Board Size / N / Cities — for non-map-coloring problems */}
+            {problemId !== 'map-coloring' && (
+                <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase text-slate-400">
+                        {problemId === 'tsp' ? 'Number of Cities' : (problemId === 'sudoku' ? 'Grid Size' : 'Board Size (N)')}
+                    </label>
+
+                    {problemId === 'sudoku' ? (
+                        <select
+                            value={problemParams.size || 9}
+                            onChange={(e) => {
+                                const newSize = parseInt(e.target.value);
+                                const newK = Math.floor(newSize * newSize * 0.60);
+                                setProblemParams(prev => ({ ...prev, size: newSize, removeCount: newK }));
+                            }}
+                            className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                            disabled={isPlaying}
+                        >
+                            <option value="3">3x3 (Tiny)</option>
+                            <option value="6">6x6 (Mini)</option>
+                            <option value="9">9x9 (Standard)</option>
+                            <option value="15">15x15 (Giant)</option>
+                        </select>
+                    ) : (
+                        <input
+                            type="number"
+                            min="4" max={problemId === 'tsp' ? "50" : "20"}
+                            value={problemParams.size || (problemId === 'tsp' ? 20 : 8)}
+                            onChange={(e) => handleProblemParamChange('size', parseInt(e.target.value))}
+                            className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                            disabled={isPlaying}
+                        />
+                    )}
+                </div>
+            )}
+
+            {/* Random graph node count */}
+            {problemId === 'map-coloring' && problemParams.graphType === 'random' && (
+                <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase text-slate-400">Board Size (N)</label>
+                    <input
+                        type="number"
+                        min="3" max="20"
+                        value={problemParams.size || 8}
                         onChange={(e) => handleProblemParamChange('size', parseInt(e.target.value))}
                         className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
                         disabled={isPlaying}
                     />
-                )}
-            </div>
+                </div>
+            )}
 
             {problemId === 'sudoku' && (
                 <div className="space-y-2">
@@ -102,6 +162,7 @@ const Controls = ({
                 </div>
             )}
 
+            {/* Algorithm Selection */}
             <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase text-slate-400">Algorithm</label>
                 <select
@@ -119,7 +180,7 @@ const Controls = ({
                         <option value="bfs">Breadth-First Search</option>
                         <option value="dfs">Depth-First Search</option>
                     </optgroup>
-                    {(problemId === 'n-queens' || problemId === 'sudoku') && (
+                    {currentProblem?.supportsCSP && (
                         <optgroup label="Constraint Satisfaction">
                             <option value="backtracking">Backtracking</option>
                             <option value="forwardChecking">Forward Checking</option>
@@ -271,7 +332,42 @@ const Controls = ({
                         </div>
                     </>
                 )}
-                {(algorithm === 'bfs' || algorithm === 'dfs') && (
+
+                {algorithm === 'hillClimbing' && (
+                    <div className="space-y-2">
+                        <div className="flex justify-between text-xs text-slate-400 uppercase">
+                            <label className="font-semibold">Sideways Tolerance</label>
+                            <span>{((algoParams.sidewaysTolerance || 0) * 100).toFixed(1)}%</span>
+                        </div>
+                        <input
+                            type="range"
+                            min="0" max="0.1" step="0.001"
+                            value={algoParams.sidewaysTolerance || 0}
+                            onChange={(e) => handleAlgoParamChange('sidewaysTolerance', parseFloat(e.target.value))}
+                            className="w-full accent-purple-500"
+                        />
+                        <p className="text-[10px] text-slate-500">Accept worse moves within this % as sideways.</p>
+                    </div>
+                )}
+
+                {/* Variable Selection — only for domain-tracking algorithms */}
+                {(algorithm === 'forwardChecking' || algorithm === 'arcConsistency') && (
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold uppercase text-slate-400">Variable Selection</label>
+                        <select
+                            value={algoParams.variableHeuristic || 'inOrder'}
+                            onChange={(e) => handleAlgoParamChange('variableHeuristic', e.target.value)}
+                            className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                        >
+                            <option value="inOrder">In-Order (Default)</option>
+                            <option value="mrv">MRV (Most Constrained)</option>
+                            <option value="leastConstrained">Least Constrained (Educational)</option>
+                            <option value="random">Random</option>
+                        </select>
+                    </div>
+                )}
+
+                {(algorithm === 'bfs' || algorithm === 'dfs' || algorithm === 'backtracking' || algorithm === 'forwardChecking' || algorithm === 'arcConsistency') && (
                     <div className="space-y-2">
                         <label className="text-xs font-semibold uppercase text-slate-400">Max Iterations (Limit)</label>
                         <input
@@ -312,7 +408,7 @@ const Controls = ({
                         min="1" max="1000" step="10"
                         value={speed}
                         onChange={(e) => setSpeed(parseInt(e.target.value))}
-                        className="w-full accent-blue-500" // reversed direction visual logic needed? usually left is slow (high delay)
+                        className="w-full accent-blue-500"
                     />
                 </div>
 
