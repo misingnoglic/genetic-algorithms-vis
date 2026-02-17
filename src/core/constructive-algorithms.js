@@ -165,7 +165,6 @@ export const ConstructiveAlgorithms = {
             // isSolution checks cost==0.
             if (problem.isSolution(current)) {
                 yield { state: current, note: `Solution Found!`, evaluations };
-                return 'Solution Found!';
             }
 
             if (steps >= maxIter) {
@@ -209,7 +208,6 @@ export const ConstructiveAlgorithms = {
 
             if (problem.isSolution(current)) {
                 yield { state: current, note: `Solution Found!`, evaluations };
-                return 'Solution Found!';
             }
 
             if (steps >= maxIter) {
@@ -260,7 +258,6 @@ export const ConstructiveAlgorithms = {
 
             if (problem.isSolution(current)) {
                 yield { state: current, note: `Solution Found!`, evaluations };
-                return 'Solution Found!';
             }
 
             if (steps >= maxIter) {
@@ -357,7 +354,6 @@ export const ConstructiveAlgorithms = {
 
             if (problem.isSolution(current)) {
                 yield { state: current, note: `Solution Found!`, evaluations };
-                return 'Solution Found!';
             }
 
             // CSP: Select Variable
@@ -445,7 +441,6 @@ export const ConstructiveAlgorithms = {
 
             if (problem.isSolution(current)) {
                 yield { state: current, note: `Solution Found!`, evaluations };
-                return 'Solution Found!';
             }
 
             const variable = selectVariable(current, problem, params);

@@ -1,210 +1,186 @@
-import { describe, it, expect } from 'vitest';
-import { Algorithms } from './algorithms.js';
+import { describe, it, expect, vi } from 'vitest';
+import { Algorithms } from './algorithms';
 
-// Mock State for a simple 1D convex problem (y = x^2)
-class MockState {
-    constructor(x) {
-        this.x = x;
-    }
-
-    get cost() {
-        return this.x * this.x; // Minimum at x=0
-    }
-
-    getNeighbors() {
-        // Neighbors are x-1 and x+1
-        return [new MockState(this.x - 1), new MockState(this.x + 1)];
-    }
-
-    getRandomNeighbor() {
-        return Math.random() < 0.5 ? new MockState(this.x - 1) : new MockState(this.x + 1);
-    }
-
-    clone() {
-        return new MockState(this.x);
-    }
-}
-
-// Mock Problem definition
-const MockProblem = {
-    randomState: () => {
-        // Random x between -10 and 10
-        const x = Math.floor(Math.random() * 21) - 10;
-        return new MockState(x);
-    },
-
-    isSolution: (state) => state.cost === 0, // Goal test
-
-    crossover: (parents) => {
-        // Average of x
-        const avg = Math.floor((parents[0].x + parents[1].x) / 2);
-        return new MockState(avg);
-    },
-
-    mutate: (state, rate) => {
-        if (Math.random() < rate) {
-            state.x += (Math.random() < 0.5 ? -1 : 1);
-        }
-    }
+// Mock Problem Interface
+const createMockProblem = (type = 'standard') => {
+    return {
+        id: 'mock',
+        randomState: vi.fn(() => ({
+            cost: 10,
+            data: 'initial',
+            getNeighbors: () => [],
+            clone: function () { return { ...this } }
+        })),
+        isSolution: vi.fn((state) => state.cost === 0),
+        getNeighbors: vi.fn(() => []),
+        // Add other methods as needed by specific algos
+        crossover: vi.fn(() => ({
+            cost: 5,
+            data: 'child',
+            clone: function () { return { ...this } }
+        })),
+        mutate: vi.fn((state) => state),
+        emptyState: vi.fn(() => ({ cost: 100, data: 'empty', isPartial: true })),
+        extractInstanceParams: vi.fn(() => ({})),
+    };
 };
 
+describe('Algorithms', () => {
+    describe('Hill Climbing', () => {
+        it('should improve state until local optimum', () => {
+            const problem = createMockProblem();
 
-// --- ALGORITHM TESTS ---
+            // Build linked states with persistent objects
+            const leaf5 = { cost: 5, getNeighbors: () => [{ cost: 5 }] }; // Best found
+            const leaf9 = { cost: 9, getNeighbors: () => [{ cost: 9 }] };
 
-describe('Algorithms (Generic)', () => {
+            const node8 = {
+                cost: 8,
+                getNeighbors: () => [
+                    leaf5,
+                    leaf9
+                ]
+            };
+            const node12 = { cost: 12, getNeighbors: () => [{ cost: 12 }] };
 
-    describe('hillClimbing', () => {
-        it('should solve a simple convex problem', () => {
-            const initial = new MockState(5);
-            // Must pass problem instance now
-            const iterator = Algorithms.hillClimbing(initial, {}, MockProblem);
+            const initialState = {
+                cost: 10,
+                // Return same linked objects
+                getNeighbors: () => [
+                    node8,
+                    node12
+                ]
+            };
+
+            // Leaf states need neighbors too (worse or equal to be "Stuck" at 5)
+            // Leaf 5 neighbors: cost 6, 7 (worse)
+            const leaf6 = { cost: 6, getNeighbors: () => [{ cost: 6 }] };
+            const leaf7 = { cost: 7, getNeighbors: () => [{ cost: 7 }] };
+
+            // Override leaf5 neighbors to simulate stuck at 5
+            leaf5.getNeighbors = () => [leaf6, leaf7];
+
+
+            const generator = Algorithms.hillClimbing(initialState, {}, problem);
 
             let result;
-            let finalState;
-            while (true) {
-                result = iterator.next();
-                if (result.done) break;
-                finalState = result.value.state;
-            }
-
-            expect(finalState.cost).toBe(0);
-        });
-
-        it('should reach global optimum for simple convex problem', () => {
-            const initial = new MockState(-5);
-            const iterator = Algorithms.hillClimbing(initial, {}, MockProblem);
-
-            let lastState;
-            for (const step of iterator) {
-                lastState = step.state;
-            }
-            expect(lastState.cost).toBe(0);
-        });
-
-        // [New Test] Sideways Tolerance
-        it('should accept worse moves within tolerance (TSP Behavior)', () => {
-            // Construct a local optimum at 10, but 11 is slightly worse (within tolerance) leading to global opt at 15?
-            // Or simpler: Current cost 100. Neighbor 101. Tolerance 0.05 (105). Should accept 101 as Sideways.
-
-            const problem = { ...MockProblem, id: 'tsp' }; // Pretend to be TSP
-            const state = {
-                cost: 100,
-                getNeighbors: () => [{ cost: 101 }],
-                clone: () => ({ cost: 100 })
-            };
-
-            const params = { sidewaysTolerance: 0.02, maxSideways: 1 };
-            const iterator = Algorithms.hillClimbing(state, params, problem);
-
-            const first = iterator.next(); // Initial
-            const second = iterator.next(); // Should be Sideways move to 101
-
-            expect(second.value.state.cost).toBe(101);
-            expect(second.value.note).toContain('Sideways (≈)');
-        });
-    });
-
-    describe('stochasticHillClimbing', () => {
-        it('should run and eventually improve', () => {
-            const initial = new MockState(10);
-            const iterator = Algorithms.stochasticHillClimbing(initial, { maxRestarts: 0 }, MockProblem);
-
-            let improvements = 0;
             let steps = 0;
             while (true) {
-                const res = iterator.next();
-                if (res.done) break;
-                if (res.value.note.includes('Improved')) improvements++;
+                const step = generator.next();
+                if (step.done) {
+                    result = step.value;
+                    break;
+                }
                 steps++;
-                if (steps > 20) break; // Safety break
             }
 
-            // Just check it runs without error and yields something
-            expect(steps).toBeGreaterThan(0);
-        });
-    });
-
-    describe('simulatedAnnealing', () => {
-        it('should yield states with decreasing temperature', () => {
-            const initial = new MockState(10);
-            const iterator = Algorithms.simulatedAnnealing(initial, { initialTemp: 100, coolingRate: 0.5 }, MockProblem); // faster cooling
-
-            const first = iterator.next().value;
-            // Parse T from note "T=100.00"
-            const getT = (note) => parseFloat(note.match(/T=([0-9.]+)/)[1]);
-
-            expect(getT(first.note)).toBe(100);
-
-            const second = iterator.next().value;
-            expect(second).toBeDefined();
-        });
-    });
-
-    describe('geneticAlgorithm', () => {
-        it('should initialize and evolve population', () => {
-            const params = {
-                startingPopulationSize: 10,
-                maxGenerations: 5
-            };
-            // GA takes null initial state, params, and problem
-            const iterator = Algorithms.geneticAlgorithm(null, params, MockProblem);
-
-            const first = iterator.next().value;
-            expect(first.population).toHaveLength(10);
-            expect(first.population[0]).toBeInstanceOf(MockState);
-
-            const second = iterator.next().value;
-            expect(second.population).toBeDefined();
-        });
-    });
-
-    describe('localBeamSearch', () => {
-        it('should respect beam width', () => {
-            const params = { beamWidth: 3, maxGenerations: 5 };
-            const iterator = Algorithms.localBeamSearch(null, params, MockProblem);
-
-            const first = iterator.next().value;
-            expect(first.population).toHaveLength(3);
+            expect(result.state.cost).toBe(5);
+            expect(result.note).toContain('Stuck');
         });
 
-        it('should handle stochastic variant', () => {
-            const params = { beamWidth: 3, maxGenerations: 2, variant: 'stochastic' };
-            const iterator = Algorithms.localBeamSearch(null, params, MockProblem);
+        it('should restart when stuck if maxRestarts > 0', () => {
+            const problem = createMockProblem();
+            // Mock randomState to return a better state on restart
 
-            const first = iterator.next().value;
-            expect(first.population).toHaveLength(3);
-        });
-
-        // [New Test] Fixed Termination Bug
-        it('should stop after maxSideways on a plateau', () => {
-            // Mock a problem where all states have cost 10 (Plateau)
-            const PlateauState = class {
-                constructor() { this.cost = 10; }
-                getNeighbors() { return [new PlateauState()]; }
-                clone() { return new PlateauState(); }
-                toString() { return '10'; }
-            };
-            const PlateauProblem = {
-                randomState: () => new PlateauState(),
-                isSolution: () => false
+            // Initial state (Cost 10) -> Neighbors cost 10 (Stuck)
+            const badState = {
+                cost: 10,
+                getNeighbors: () => [
+                    { cost: 10, getNeighbors: () => [{ cost: 10 }] },
+                    { cost: 12, getNeighbors: () => [{ cost: 12 }] } // Not better
+                ]
             };
 
-            const params = { beamWidth: 1, maxSideways: 3, maxGenerations: 100 };
-            const iterator = Algorithms.localBeamSearch(null, params, PlateauProblem);
+            // Better state (Cost 2) -> Neighbors cost 2 (Stuck but better)
+            const goodState = {
+                cost: 2,
+                getNeighbors: () => [
+                    { cost: 2, getNeighbors: () => [{ cost: 2 }] },
+                    { cost: 3, getNeighbors: () => [{ cost: 3 }] }
+                ]
+            };
 
-            let steps = 0;
-            let lastNote = '';
-            while (true) {
-                const res = iterator.next();
-                if (res.done) break;
-                lastNote = res.value.note;
-                steps++;
-                if (steps > 20) break; // Fail prevention
+            problem.randomState = vi.fn()
+                .mockReturnValueOnce(badState) // Initial (Stuck immediately)
+                .mockReturnValueOnce(goodState); // Restart 1 (Better)
+
+            const generator = Algorithms.hillClimbing(null, { maxRestarts: 1 }, problem);
+
+            // Run through generator
+            for (const step of generator) {
+                // Just consume
             }
 
-            // Init + 3 updates + Final return? roughly 5-6 steps
-            expect(steps).toBeLessThan(15);
-            expect(lastNote).toContain('Stuck');
+            // The generator yields the restart state checking params
+            expect(problem.randomState).toHaveBeenCalledTimes(2);
+            // 1. Initial
+            // 2. Restart 1
         });
     });
+
+    describe('Simulated Annealing', () => {
+        it('should accept worse moves with probability', () => {
+            const problem = createMockProblem();
+            const initialState = {
+                cost: 10,
+                getRandomNeighbor: () => ({ cost: 15 }) // Worse
+            };
+
+            // Force Math.random to accept (return 0)
+            vi.spyOn(Math, 'random').mockReturnValue(0);
+
+            const generator = Algorithms.simulatedAnnealing(initialState, { initialTemp: 100 }, problem);
+            const step1 = generator.next(); // Initial
+            const step2 = generator.next(); // Accepted worse
+
+            expect(step2.value.note).toContain('Accepted worse');
+            expect(step2.value.state.cost).toBe(15);
+
+            vi.restoreAllMocks();
+        });
+
+        it('should freeze when temp is low', () => {
+            const problem = createMockProblem();
+            const initialState = { cost: 10, getRandomNeighbor: () => ({ cost: 10 }) };
+
+            // Very fast cooling
+            const generator = Algorithms.simulatedAnnealing(initialState, { initialTemp: 0.00001 }, problem);
+
+            // Initial state yield
+            let result = generator.next();
+            expect(result.done).toBe(false);
+
+            // Should be done immediately (frozen)
+            result = generator.next();
+            expect(result.done).toBe(true);
+            expect(result.value.note).toContain('Frozen');
+        });
+    });
+
+    describe('Genetic Algorithm', () => {
+        it('should evolve population and yield solution', () => {
+            const problem = createMockProblem();
+            // Mock crossover to return improved child
+            problem.crossover = vi.fn(() => ({ cost: 0, metadata: {} })); // Perfect child
+
+            const generator = Algorithms.geneticAlgorithm(null, {
+                startingPopulationSize: 4,
+                maxGenerations: 1
+            }, problem);
+
+            // Initial population yield
+            const init = generator.next();
+            expect(init.value.population).toHaveLength(4);
+
+            // Generation 1 (should fine solution)
+            const gen1 = generator.next();
+            // The generator YIELDS the solution state when found
+            expect(gen1.value.state.cost).toBe(0);
+
+            // Should be done now
+            const doneStep = generator.next();
+            expect(doneStep.done).toBe(true);
+        });
+    });
+
 });

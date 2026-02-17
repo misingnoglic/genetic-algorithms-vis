@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react'; // Force rebuild
 import NQueensBoard from './components/boards/NQueensBoard';
 import TSPBoard from './components/boards/TSPBoard';
 import SudokuBoard from './components/boards/SudokuBoard';
 import MapColoringBoard from './components/boards/MapColoringBoard';
+import TetrisBoard from './components/boards/TetrisBoard';
 import Controls from './components/Controls';
 import StatsPanel from './components/StatsPanel';
 import PopulationGrid from './components/PopulationGrid';
@@ -10,6 +11,7 @@ import { NQueensProblem } from './core/problems/n-queens.js';
 import { TSPProblem } from './core/problems/tsp.js';
 import { SudokuProblem } from './core/problems/sudoku.js';
 import { MapColoringProblem } from './core/problems/map-coloring.js';
+import { TetrisPackingProblem } from './core/problems/tetris-packing.js';
 import { Algorithms } from './core/algorithms.js';
 import { BenchmarkRunner, getValidConfigs, BENCHMARK_SEEDS } from './core/benchmark.js';
 import BenchmarkModal from './components/BenchmarkModal.jsx';
@@ -19,12 +21,14 @@ NQueensProblem.BoardComponent = NQueensBoard;
 TSPProblem.BoardComponent = TSPBoard;
 SudokuProblem.BoardComponent = SudokuBoard;
 MapColoringProblem.BoardComponent = MapColoringBoard;
+TetrisPackingProblem.BoardComponent = TetrisBoard;
 
 export const PROBLEM_REGISTRY = {
   [NQueensProblem.id]: NQueensProblem,
   [TSPProblem.id]: TSPProblem,
   [SudokuProblem.id]: SudokuProblem,
-  [MapColoringProblem.id]: MapColoringProblem
+  [MapColoringProblem.id]: MapColoringProblem,
+  [TetrisPackingProblem.id]: TetrisPackingProblem
 };
 
 const isConstructive = (algo) => {
@@ -74,6 +78,9 @@ function App() {
   const [isFinished, setIsFinished] = useState(false);
   const [algoNote, setAlgoNote] = useState('');
   const [optimalCost, setOptimalCost] = useState(null);
+  const [bestSolutionCost, setBestSolutionCost] = useState(Infinity); // Track best complete solution cost
+  // We use a ref for the best state to avoid stale closures in the animation loop
+  const bestSolutionRef = useRef({ cost: Infinity, state: null });
 
   // Benchmark State
   const [showBenchmark, setShowBenchmark] = useState(false);
@@ -141,6 +148,8 @@ function App() {
     setEvaluations(0);
     setAlgoNote('Ready');
     setPopulation(null);
+    setBestSolutionCost(Infinity); // Reset best found
+    bestSolutionRef.current = { cost: Infinity, state: null };
   }, []);
 
   // Generate a completely new problem instance
@@ -277,6 +286,9 @@ function App() {
     let lastValidState = null;
     let lastValidValue = null;
 
+    let batchBestState = null;
+    let batchBestCost = Infinity;
+
     // Run loop
     for (let i = 0; i < batchSize; i++) {
       lastResult = iteratorRef.current.next();
@@ -285,8 +297,17 @@ function App() {
       if (lastResult.value) {
         lastValidValue = lastResult.value;
         if (lastResult.value.state) {
-          lastValidState = lastResult.value.state;
-          batchHistory.push(lastResult.value.state.cost);
+          const state = lastResult.value.state;
+          lastValidState = state;
+          batchHistory.push(state.cost);
+
+          // Track Best State in THIS Batch locally
+          if (!state.isPartial || currentProblem.isSolution(state)) {
+            if (state.cost < batchBestCost) {
+              batchBestCost = state.cost;
+              batchBestState = state;
+            }
+          }
         }
       }
     }
@@ -298,6 +319,15 @@ function App() {
       setCurrentState(lastValidState);
       setHistory(prev => [...prev, ...batchHistory]);
       setStepCount(prev => prev + batchHistory.length);
+
+      // Update Global Best Solution using the BEST from THIS BATCH
+      // We must compare against current bestSolutionRef (source of truth)
+      if (batchBestState) {
+        if (batchBestCost < bestSolutionRef.current.cost) {
+          bestSolutionRef.current = { cost: batchBestCost, state: batchBestState };
+          setBestSolutionCost(batchBestCost); // Trigger re-render
+        }
+      }
     }
 
     if (lastValidValue) {
@@ -321,12 +351,25 @@ function App() {
       setIsPlaying(false);
       setIsTurbo(false);
       setIsFinished(true);
-      // If generator returns a value, use it as the final note
-      if (lastResult.value && typeof lastResult.value === 'string') {
+
+      // If generator returns a value (best state), use it
+      if (lastResult.value && typeof lastResult.value === 'object') {
+        const { state, note } = lastResult.value;
+        if (note) setAlgoNote(note);
+
+        if (state) {
+          // Always restore the best state returned by the algorithm
+          setCurrentState(state);
+          setAlgoNote(prev => prev + ' (Best Restored)');
+
+          // Also update the Best Found stat if this is better
+          if (state.cost < bestSolutionCost) {
+            setBestSolutionCost(state.cost);
+          }
+        }
+      } else if (typeof lastResult.value === 'string') {
         setAlgoNote(lastResult.value);
       } else {
-        // If the last valid note was "Solution Found!", keep it? 
-        // Or use "Finished"? Usually generator returns "Solution Found!" as string.
         if (!algoNote.includes('Solution') && !algoNote.includes('Stopped')) {
           setAlgoNote('Finished');
         }
@@ -355,7 +398,19 @@ function App() {
     if (result.done) {
       setIsPlaying(false);
       setIsFinished(true);
-      if (result.value && typeof result.value === 'string') {
+
+      if (result.value && typeof result.value === 'object') {
+        const { state, note } = result.value;
+        if (note) setAlgoNote(note);
+
+        if (state) {
+          setCurrentState(state);
+          setAlgoNote(prev => prev + ' (Best Restored)');
+          if (state.cost < bestSolutionCost) {
+            setBestSolutionCost(state.cost);
+          }
+        }
+      } else if (typeof result.value === 'string') {
         setAlgoNote(result.value);
       } else {
         setAlgoNote('Finished');
@@ -389,10 +444,22 @@ function App() {
     if (state) {
       setHistory(prev => [...prev, state.cost]);
       setStepCount(prev => prev + 1);
+
+      if (!state.isPartial || currentProblem.isSolution(state)) {
+        if (state.cost < bestSolutionRef.current.cost) {
+          bestSolutionRef.current = { cost: state.cost, state: state };
+          setBestSolutionCost(state.cost);
+        }
+      }
     }
 
     // Auto-stop if solution found (cost 0 or problem says so)
-    if (state && currentProblem.isSolution(state)) {
+    // For Tetris (optimization), don't stop just because isSolution is true (complete state)
+    // unless cost is 0.
+    const isOptimization = currentProblem.id === 'tetris';
+    const isComplete = state && ((currentProblem.id !== 'tetris') || state.pieces) && currentProblem.isSolution(state);
+
+    if (state && isComplete && (!isOptimization || (state.cost === 0))) {
       setIsPlaying(false);
       setIsFinished(true);
     } else if (!state) {
@@ -467,7 +534,12 @@ function App() {
           setAlgorithm={setAlgorithm}
 
           problemId={selectedProblemId}
-          setProblemId={setSelectedProblemId}
+          setProblemId={(id) => {
+            setIsPlaying(false);
+            setIsTurbo(false);
+            setCurrentState(null);
+            setSelectedProblemId(id);
+          }}
           problemRegistry={PROBLEM_REGISTRY}
           currentProblem={currentProblem}
           problemParams={problemParams}
@@ -499,7 +571,7 @@ function App() {
             Note: {algoNote}
           </div>
           <div className="text-sm font-medium">
-            Cost: <span className={(currentState?.cost === 0 || (currentState && currentProblem.isSolution(currentState))) ? "text-green-400" : "text-red-400"}>
+            Cost: <span className={(currentState?.cost === 0 || (currentState && currentProblem.isSolution && ((currentProblem.id !== 'tetris') || currentState.pieces) && currentProblem.isSolution(currentState))) ? "text-green-400" : "text-red-400"}>
               {currentState?.cost ? currentState.cost.toFixed(3) : '-'}
             </span>
           </div>
@@ -527,7 +599,7 @@ function App() {
             <StatsPanel
               history={history}
               currentCost={currentState?.cost}
-              bestCost={Math.min(...history)}
+              bestCost={bestSolutionCost}
               optimalCost={optimalCost}
               stepCount={stepCount}
               evaluations={evaluations}

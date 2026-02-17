@@ -9,17 +9,26 @@ export const Algorithms = {
         // If initialState is null (e.g. for TSP/Beam where we might want to let alg init), 
         // handle it, but usually HC takes a start node.
         let current = initialState || problem.randomState(params);
+
+        // [Tetris Fix] If we receive an Empty state (Constructive) but run Local Search,
+        // we must start with a Full Random state to have neighbors.
+        if (problem.id === 'tetris' && current && current.placedCount < (current.pieces ? current.pieces.length : 0)) {
+            current = problem.randomState(params);
+        }
         let restarts = 0;
         let evaluations = 0;
 
+        let bestState = current; // Track best found
+
         while (true) {
             let sidewaysMoves = 0;
+            if (current.cost < bestState.cost) bestState = current;
             yield { state: current, note: restarts > 0 ? `Restart #${restarts}` : 'Initial State', restartCount: restarts, evaluations };
 
             while (true) {
-                if (problem.isSolution(current)) {
-                    yield { state: current, note: 'Solution Found!', restartCount: restarts, evaluations };
-                    return;
+                if (problem.isSolution(current) && (problem.id !== 'tetris' || current.cost === 0)) {
+                    if (current.cost < bestState.cost) bestState = current;
+                    return { state: bestState, note: 'Solution Found!', restartCount: restarts, evaluations };
                 }
 
                 const neighbors = current.getNeighbors();
@@ -49,6 +58,7 @@ export const Algorithms = {
                 // Check if strictly better
                 if (next.cost < current.cost) {
                     current = next;
+                    if (current.cost < bestState.cost) bestState = current;
                     sidewaysMoves = 0;
                     yield { state: current, note: 'Improved', restartCount: restarts, evaluations };
                 } else {
@@ -71,14 +81,14 @@ export const Algorithms = {
             }
 
             // If we are here, we are stuck. Check for restarts.
+            // If we are here, we are stuck. Check for restarts.
             if (restarts < maxRestarts) {
                 yield { state: current, note: 'Stuck (Local Maxima) - Restarting...', restartCount: restarts, evaluations };
                 restarts++;
                 current = problem.randomState(params);
                 evaluations++; // Count the restart state
             } else {
-                yield { state: current, note: 'Stuck (Local Maxima)', restartCount: restarts, evaluations };
-                return;
+                return { state: bestState, note: 'Stuck (Local Maxima)', restartCount: restarts, evaluations };
             }
         }
     },
@@ -87,17 +97,23 @@ export const Algorithms = {
         const { maxSideways = 0, maxRestarts = 0, variant = 'standard' } = params;
 
         let current = initialState || problem.randomState(params);
+        if (problem.id === 'tetris' && current && current.placedCount < (current.pieces ? current.pieces.length : 0)) {
+            current = problem.randomState(params);
+        }
         let restarts = 0;
         let evaluations = 0;
 
+        let bestState = current;
+
         while (true) {
             let sidewaysMoves = 0;
+            if (current.cost < bestState.cost) bestState = current;
             yield { state: current, note: restarts > 0 ? `Restart #${restarts}` : 'Initial State', restartCount: restarts, evaluations };
 
             while (true) {
-                if (problem.isSolution(current)) {
-                    yield { state: current, note: 'Solution Found!', restartCount: restarts, evaluations };
-                    return;
+                if (problem.isSolution(current) && (problem.id !== 'tetris' || current.cost === 0)) {
+                    if (current.cost < bestState.cost) bestState = current;
+                    return { state: bestState, note: 'Solution Found!', restartCount: restarts, evaluations };
                 }
 
                 let nextState = null;
@@ -215,6 +231,7 @@ export const Algorithms = {
                 if (nextState) {
                     current = nextState;
                     if (moveType === 'Improved') {
+                        if (current.cost < bestState.cost) bestState = current;
                         sidewaysMoves = 0;
                         yield { state: current, note: 'Improved', restartCount: restarts, evaluations };
                     } else {
@@ -234,8 +251,7 @@ export const Algorithms = {
                 current = problem.randomState(params);
                 evaluations++;
             } else {
-                yield { state: current, note: 'Stuck (Local Maxima)', restartCount: restarts, evaluations };
-                return;
+                return { state: bestState, note: 'Stuck (Local Maxima)', restartCount: restarts, evaluations };
             }
         }
     },
@@ -244,20 +260,24 @@ export const Algorithms = {
         const { initialTemp = 100, coolingRate = 0.99 } = params;
 
         let current = initialState || problem.randomState(params);
+        if (problem.id === 'tetris' && current && current.placedCount < (current.pieces ? current.pieces.length : 0)) {
+            current = problem.randomState(params);
+        }
         let temp = initialTemp;
         let evaluations = 0;
+
+        let bestState = current;
 
         yield { state: current, note: `T=${temp.toFixed(2)}`, evaluations };
 
         while (true) {
-            if (problem.isSolution(current)) {
-                yield { state: current, note: 'Solution Found!', evaluations };
-                return;
+            if (current.cost < bestState.cost) bestState = current;
+            if (problem.isSolution(current) && (problem.id !== 'tetris' || current.cost === 0)) {
+                return { state: bestState, note: 'Solution Found!', evaluations };
             }
 
             if (temp < 0.0001) {
-                yield { state: current, note: 'Frozen', evaluations };
-                return;
+                return { state: bestState, note: 'Frozen', evaluations };
             }
 
             // Random neighbor
@@ -268,6 +288,7 @@ export const Algorithms = {
 
             if (deltaE > 0) {
                 current = next;
+                if (current.cost < bestState.cost) bestState = current;
                 yield { state: current, note: `T=${temp.toFixed(2)} (Improved)`, evaluations };
             } else {
                 // Worse move. Accept with probability exp(deltaE / T)
@@ -288,14 +309,13 @@ export const Algorithms = {
             // If temperature gets too low and we haven't found a solution, reheat or restart
             if (temp < 0.01) {
                 if (problem.isSolution(current)) { // Should have been caught, but check again
-                    yield { state: current, note: 'Solution Found!', evaluations };
-                    return;
+                    if (current.cost < bestState.cost) bestState = current;
+                    return { state: bestState, note: 'Solution Found!', evaluations };
                 }
 
                 // For TSP, we don't know if we have a solution by cost > 0.
                 // Request: Just stop when frozen.
-                yield { state: current, note: 'Frozen', evaluations };
-                return;
+                return { state: bestState, note: 'Frozen', evaluations };
             }
         }
     },
@@ -335,7 +355,7 @@ export const Algorithms = {
             let stuck = false;
 
             for (let gen = 1; gen <= maxGenerations; gen++) {
-                if (problem.isSolution(best)) {
+                if (problem.isSolution(best) && (problem.id !== 'tetris' || best.cost === 0)) {
                     yield { state: best, population, note: `Solution Found!`, evaluations, restartCount: restarts };
                     return;
                 }
@@ -427,7 +447,7 @@ export const Algorithms = {
                     evaluations
                 };
 
-                if (problem.isSolution(best)) {
+                if (problem.isSolution(best) && (problem.id !== 'tetris' || best.cost === 0)) {
                     yield { state: best, population, note: `Solution Found!`, evaluations, restartCount: restarts };
                     return;
                 }
@@ -444,8 +464,7 @@ export const Algorithms = {
                     restarts++;
                     // Loop continues to re-init
                 } else {
-                    yield { state: best, population, note: 'Stuck (Max Restarts Reached)', restartCount: restarts, evaluations };
-                    return;
+                    return { state: bestSoFar, population, note: 'Stuck (Max Restarts Reached)', restartCount: restarts, evaluations };
                 }
             }
         }
@@ -486,10 +505,12 @@ export const Algorithms = {
             evaluations
         };
 
+        let bestGlobal = best;
+
         for (let gen = 1; gen <= maxGenerations; gen++) {
-            if (problem.isSolution(best)) {
-                yield { state: best, population, note: `Solution in Gen ${gen - 1} `, evaluations };
-                return;
+            if (problem.isSolution(best) && (problem.id !== 'tetris' || best.cost === 0)) {
+                if (best.cost < bestGlobal.cost) bestGlobal = best;
+                return { state: bestGlobal, population, note: `Solution in Gen ${gen - 1} `, evaluations };
             }
 
             // Mark everyone as 'Survivor' initially
@@ -540,6 +561,7 @@ export const Algorithms = {
             population = newPopulation;
             population.sort((a, b) => a.cost - b.cost);
             best = population[0];
+            if (best.cost < bestGlobal.cost) bestGlobal = best;
 
             yield {
                 state: best,

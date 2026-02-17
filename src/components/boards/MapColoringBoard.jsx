@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import * as d3 from 'd3';
-import { COLOR_PALETTE } from '../../core/problems/map-coloring.js';
+import { MAP_COLORING_PALETTE as COLOR_PALETTE } from '../../core/constants.js';
 
 // Unassigned color
 const UNASSIGNED_COLOR = '#374151'; // slate-700
