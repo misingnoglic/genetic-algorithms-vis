@@ -1,7 +1,7 @@
 import React from 'react';
 import { X, Play, Trophy, Timer, Activity } from 'lucide-react';
 
-const BenchmarkModal = ({ isOpen, onClose, onRun, isRunning, progress, results }) => {
+const BenchmarkModal = ({ isOpen, onClose, onRun, isRunning, progress, results, configCount, seedCount }) => {
     if (!isOpen) return null;
 
     return (

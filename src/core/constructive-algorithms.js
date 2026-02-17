@@ -232,6 +232,7 @@ export const ConstructiveAlgorithms = {
 
     // Backtracking Search (CSP)
     // DFS with Pruning (Constraint Check)
+    // Now uses selectVariable + value iteration for variable/value ordering
     backtracking: function* (dummyState, params, problem) {
         let root = problem.emptyState(params);
         if (dummyState && problem.id === 'sudoku') {
@@ -241,10 +242,15 @@ export const ConstructiveAlgorithms = {
             root = new dummyState.constructor(dummyState.size, cleanGrid, dummyState.fixed);
         }
 
+        // Initialize domains for value ordering support (not used for pruning)
+        if (!root.domains && problem.initializeDomains) {
+            root.domains = problem.initializeDomains(root);
+        }
+
         const stack = [root];
         let evaluations = 0;
         let steps = 0;
-        const maxIter = params.maxIterations || 10000; // Add limit for safety
+        const maxIter = params.maxIterations || 10000;
 
         while (stack.length > 0) {
             const current = stack.pop();
@@ -263,10 +269,8 @@ export const ConstructiveAlgorithms = {
             }
 
             // Pruning (Constraint Check)
-            // This is what makes it "Backtracking" vs "DFS"
             let isValid = true;
             if (problem.isPartiallyValid) {
-                // Generic constraint check — preferred
                 isValid = problem.isPartiallyValid(current);
             } else if (problem.id === 'n-queens') {
                 if (current.getAttackingQueens().size > 0) isValid = false;
@@ -275,10 +279,35 @@ export const ConstructiveAlgorithms = {
             }
 
             if (isValid) {
-                const successors = getSuccessors(current, problem, params);
-                evaluations += successors.length;
-                for (let i = successors.length - 1; i >= 0; i--) {
-                    stack.push(successors[i]);
+                // Select variable using heuristic
+                const variable = selectVariable(current, problem, params);
+                if (variable !== null) {
+                    // Get domain values for this variable
+                    let domainValues;
+                    if (current.domains) {
+                        domainValues = problem.getDomainValues
+                            ? problem.getDomainValues(current, variable)
+                            : current.domains[variable];
+                    } else {
+                        // Fallback: generate all possible values
+                        domainValues = problem.getAllValues ? problem.getAllValues(current, variable, params) : null;
+                    }
+                    if (!domainValues) domainValues = [];
+
+                    // Order values using heuristic
+                    const orderedValues = orderValues(domainValues, current, variable, problem, params);
+
+                    // Push in reverse for LIFO stack (last pushed = first tried)
+                    for (let i = orderedValues.length - 1; i >= 0; i--) {
+                        const value = orderedValues[i];
+                        const nextState = problem.applyMove
+                            ? problem.applyMove(current, variable, value, current.domains)
+                            : null;
+                        if (nextState) {
+                            stack.push(nextState);
+                            evaluations++;
+                        }
+                    }
                 }
             }
         }
@@ -352,9 +381,12 @@ export const ConstructiveAlgorithms = {
 
                 if (!domainValues) domainValues = [];
 
+                // Order values using heuristic
+                const orderedValues = orderValues(domainValues, current, variable, problem, params);
+
                 // Try each value (LIFO)
-                for (let i = domainValues.length - 1; i >= 0; i--) {
-                    const value = domainValues[i];
+                for (let i = orderedValues.length - 1; i >= 0; i--) {
+                    const value = orderedValues[i];
 
                     // Prune / Forward Check
                     // We need a generic "propagate" function that returns NEW domains or null
@@ -416,14 +448,16 @@ export const ConstructiveAlgorithms = {
                 return 'Solution Found!';
             }
 
-            const variable = problem.selectUnassignedVariable ? problem.selectUnassignedVariable(current) : null;
+            const variable = selectVariable(current, problem, params);
 
             if (variable !== null) {
                 let domainValues = problem.getDomainValues ? problem.getDomainValues(current, variable) : current.domains[variable];
                 if (!domainValues) domainValues = [];
 
-                for (let i = domainValues.length - 1; i >= 0; i--) {
-                    const value = domainValues[i];
+                const orderedValues = orderValues(domainValues, current, variable, problem, params);
+
+                for (let i = orderedValues.length - 1; i >= 0; i--) {
+                    const value = orderedValues[i];
 
                     // Assign AND Run AC-3
                     const result = problem.propagateAC3 ? problem.propagateAC3(current, variable, value) : null;
@@ -458,9 +492,6 @@ export const ConstructiveAlgorithms = {
 const selectVariable = (state, problem, params) => {
     const heuristic = params.variableHeuristic || 'inOrder';
 
-    // Get all unassigned variables
-    // Problem needs to support 'getUnassignedVariables'.
-    // If not, fallback to 'selectUnassignedVariable' (single).
     if (!problem.getUnassignedVariables) {
         return problem.selectUnassignedVariable ? problem.selectUnassignedVariable(state) : null;
     }
@@ -469,42 +500,100 @@ const selectVariable = (state, problem, params) => {
     if (unassigned.length === 0) return null;
 
     if (heuristic === 'inOrder') {
-        return unassigned[0]; // First
+        return unassigned[0];
     } else if (heuristic === 'random') {
         return unassigned[Math.floor(Math.random() * unassigned.length)];
-    } else if (heuristic === 'mrv') {
-        // Most Constrained Variable (Minimum Remaining Values)
-        // We need domain size for each variable.
-        // Assuming problem.getDomainSize(state, var) or state.domains[var].length
+    } else if (heuristic === 'degree') {
+        // Degree Heuristic: pick variable involved in most constraints on unassigned variables
         let best = unassigned[0];
-        let minSize = getDomainSize(state, best, problem);
+        let maxDegree = problem.getConstraintDegree ? problem.getConstraintDegree(state, best) : 0;
 
         for (let i = 1; i < unassigned.length; i++) {
             const v = unassigned[i];
-            const size = getDomainSize(state, v, problem);
-            if (size < minSize) {
-                minSize = size;
+            const deg = problem.getConstraintDegree ? problem.getConstraintDegree(state, v) : 0;
+            if (deg > maxDegree) {
+                maxDegree = deg;
                 best = v;
             }
         }
         return best;
-    } else if (heuristic === 'leastConstrained') {
-        // Least Constrained (Max Remaining Values) - Educational/Bad heuristic
+    } else if (heuristic === 'mrv') {
+        // Minimum Remaining Values: pick variable with fewest legal values
+        // Uses degree as tie-breaker
         let best = unassigned[0];
-        let maxSize = getDomainSize(state, best, problem);
+        let minSize = getDomainSize(state, best, problem);
+        let bestDegree = problem.getConstraintDegree ? problem.getConstraintDegree(state, best) : 0;
 
         for (let i = 1; i < unassigned.length; i++) {
             const v = unassigned[i];
             const size = getDomainSize(state, v, problem);
-            if (size > maxSize) {
-                maxSize = size;
+            if (size < minSize || (size === minSize && problem.getConstraintDegree && problem.getConstraintDegree(state, v) > bestDegree)) {
+                minSize = size;
                 best = v;
+                bestDegree = problem.getConstraintDegree ? problem.getConstraintDegree(state, v) : 0;
             }
         }
         return best;
     }
 
     return unassigned[0];
+};
+
+// ============================================================
+// Value Ordering
+// ============================================================
+const orderValues = (values, state, variable, problem, params) => {
+    const heuristic = params.valueOrdering || 'inOrder';
+    if (!values || values.length <= 1) return values || [];
+
+    if (heuristic === 'inOrder') {
+        return values; // Original order
+    } else if (heuristic === 'random') {
+        // Fisher-Yates shuffle
+        const arr = [...values];
+        for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+    } else if (heuristic === 'lcv') {
+        // Least Constraining Value: prefer value that rules out fewest choices
+        // for neighboring variables
+        if (!problem.getNeighborVariables) return values;
+
+        const neighbors = problem.getNeighborVariables(state, variable);
+        if (neighbors.length === 0) return values;
+
+        const scored = values.map(val => {
+            let eliminated = 0;
+            for (const neighbor of neighbors) {
+                // Count how many values in neighbor's domain this value eliminates
+                const neighborDomain = problem.getDomainValues
+                    ? problem.getDomainValues(state, neighbor)
+                    : (state.domains ? state.domains[neighbor] : []);
+                if (!neighborDomain) continue;
+
+                // Use problem-specific constraint check if available
+                if (problem.valuesConflict) {
+                    for (const nVal of neighborDomain) {
+                        if (problem.valuesConflict(variable, val, neighbor, nVal)) {
+                            eliminated++;
+                        }
+                    }
+                } else {
+                    // Default: same-value conflict (map coloring)
+                    if (neighborDomain.includes(val)) eliminated++;
+                }
+            }
+            return { val, eliminated };
+        });
+
+        // Sort by fewest eliminations first (least constraining)
+        scored.sort((a, b) => a.eliminated - b.eliminated);
+        return scored.map(s => s.val);
+    }
+
+    return values;
 };
 
 const getDomainSize = (state, variable, problem) => {

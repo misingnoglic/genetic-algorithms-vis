@@ -496,6 +496,24 @@ export const SudokuProblem = {
         return unassigned;
     },
 
+    // Degree heuristic: count of unassigned peer cells
+    getConstraintDegree: (state, variable) => {
+        const peers = SudokuProblem._getPeers(state, variable.r, variable.c);
+        let degree = 0;
+        for (const { pr, pc } of peers) {
+            if (state.grid[pr][pc] === 0) degree++;
+        }
+        return degree;
+    },
+
+    // Get neighbor variables (for LCV) - all unassigned peers
+    getNeighborVariables: (state, variable) => {
+        const peers = SudokuProblem._getPeers(state, variable.r, variable.c);
+        return peers
+            .filter(({ pr, pc }) => state.grid[pr][pc] === 0)
+            .map(({ pr, pc }) => ({ r: pr, c: pc }));
+    },
+
     getDomainSize: (state, variable) => {
         const { r, c } = variable;
         if (state.domains && state.domains[r][c]) {
@@ -518,6 +536,16 @@ export const SudokuProblem = {
     getDomainValues: (state, variable) => {
         const { r, c } = variable;
         return state.domains[r][c];
+    },
+
+    // For LCV: peer cells conflict if assigned the same value
+    valuesConflict: (var1, val1, var2, val2) => {
+        return val1 === val2;
+    },
+
+    // All possible values for a variable (for backtracking without domains)
+    getAllValues: (state, variable, params) => {
+        return Array.from({ length: state.size }, (_, i) => i + 1);
     },
 
     applyMove: (state, variable, value, newDomains) => {
@@ -653,7 +681,15 @@ const SudokuGenerator = {
         const domains = null; // not tracking domains for init
 
         // Backtracking to fill
-        solve(grid, size);
+        // Backtracking to fill
+        let bw = Math.floor(Math.sqrt(size));
+        let bh = Math.ceil(size / bw);
+        if (size === 6) { bw = 3; bh = 2; }
+        if (size === 9) { bw = 3; bh = 3; }
+        if (size === 12) { bw = 4; bh = 3; }
+        if (size === 15) { bw = 5; bh = 3; }
+
+        solve(grid, size, 0, 0, bw, bh);
 
         // 2. Remove numbers
         const fixed = Array(size).fill(0).map(() => Array(size).fill(false));
@@ -696,33 +732,38 @@ const SudokuGenerator = {
     }
 };
 
-function solve(grid, size) {
-    // Determine box constraints
-    let bw = Math.floor(Math.sqrt(size));
-    let bh = Math.ceil(size / bw);
-    if (size === 6) { bw = 3; bh = 2; }
-    if (size === 9) { bw = 3; bh = 3; }
-    if (size === 15) { bw = 5; bh = 3; }
+function solve(grid, size, r, c, bw, bh) {
+    if (r === size) return true; // Filled all rows
 
-    for (let r = 0; r < size; r++) {
-        for (let c = 0; c < size; c++) {
-            if (grid[r][c] === 0) {
-                // Try values
-                // Shuffle 1..N
-                const vals = Array.from({ length: size }, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+    // Calculate next cell coordinates
+    let nr = r;
+    let nc = c + 1;
+    if (nc === size) {
+        nr = r + 1;
+        nc = 0;
+    }
 
-                for (const v of vals) {
-                    if (isValid(grid, r, c, v, size, bw, bh)) {
-                        grid[r][c] = v;
-                        if (solve(grid, size)) return true;
-                        grid[r][c] = 0;
-                    }
-                }
-                return false;
-            }
+    // Skip filled cells
+    if (grid[r][c] !== 0) {
+        return solve(grid, size, nr, nc, bw, bh);
+    }
+
+    // Try values 1..N
+    // Efficient shuffle: Fisher-Yates
+    const vals = Array.from({ length: size }, (_, i) => i + 1);
+    for (let i = size - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [vals[i], vals[j]] = [vals[j], vals[i]];
+    }
+
+    for (const v of vals) {
+        if (isValid(grid, r, c, v, size, bw, bh)) {
+            grid[r][c] = v;
+            if (solve(grid, size, nr, nc, bw, bh)) return true;
+            grid[r][c] = 0;
         }
     }
-    return true;
+    return false;
 }
 
 function isValid(grid, r, c, val, size, bw, bh) {

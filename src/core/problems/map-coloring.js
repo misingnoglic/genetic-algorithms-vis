@@ -431,6 +431,24 @@ export const MapColoringProblem = {
         return result;
     },
 
+    // Degree heuristic: count of constraints on unassigned neighbors
+    getConstraintDegree(state, variable) {
+        let degree = 0;
+        for (const neighbor of state.graph.adjList[variable]) {
+            if (state.assignments[neighbor] === null || state.assignments[neighbor] === undefined) {
+                degree++;
+            }
+        }
+        return degree;
+    },
+
+    // Get neighbor variables (for LCV)
+    getNeighborVariables(state, variable) {
+        return state.graph.adjList[variable].filter(n =>
+            state.assignments[n] === null || state.assignments[n] === undefined
+        );
+    },
+
     getDomainSize(state, variable) {
         if (state.domains && state.domains[variable]) {
             return state.domains[variable].length;
@@ -440,6 +458,16 @@ export const MapColoringProblem = {
 
     getDomainValues(state, variable) {
         return state.domains[variable];
+    },
+
+    // For LCV: two adjacent nodes conflict if they're assigned the same color
+    valuesConflict(var1, val1, var2, val2) {
+        return val1 === val2;
+    },
+
+    // All possible values for a variable (for backtracking without domains)
+    getAllValues(state, variable, params) {
+        return Array.from({ length: state.numColors }, (_, i) => i);
     },
 
     applyMove(state, variable, value, newDomains) {

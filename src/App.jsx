@@ -11,7 +11,7 @@ import { TSPProblem } from './core/problems/tsp.js';
 import { SudokuProblem } from './core/problems/sudoku.js';
 import { MapColoringProblem } from './core/problems/map-coloring.js';
 import { Algorithms } from './core/algorithms.js';
-import { BenchmarkRunner } from './core/benchmark.js';
+import { BenchmarkRunner, getValidConfigs, BENCHMARK_SEEDS } from './core/benchmark.js';
 import BenchmarkModal from './components/BenchmarkModal.jsx';
 
 // Attach board components to problem objects for generic rendering
@@ -56,7 +56,8 @@ function App() {
     mutationRate: 0.1,
     mixingNumber: 2,
     cullRate: 0.0,
-    elitism: true
+    elitism: true,
+    maxIterations: 10000
   });
   const [speed, setSpeed] = useState(100); // ms delay
 
@@ -202,6 +203,16 @@ function App() {
   useEffect(() => {
     handleRestart();
   }, [algorithm, handleRestart]);
+
+  // Clear benchmark results when problem changes
+  useEffect(() => {
+    setBenchmarkResults(null);
+    setBenchmarkProgress(0);
+    // Also stop any running benchmark
+    if (benchmarkRunner) {
+      benchmarkRunner.cancel();
+    }
+  }, [selectedProblemId]);
 
   const handleNewProblem = () => {
     generateNewProblem();
@@ -534,6 +545,8 @@ function App() {
         isRunning={benchmarkRunner && benchmarkRunner.isRunning}
         progress={benchmarkProgress}
         results={benchmarkResults}
+        configCount={getValidConfigs(selectedProblemId, currentProblem).length}
+        seedCount={BENCHMARK_SEEDS}
       />
     </div>
   );

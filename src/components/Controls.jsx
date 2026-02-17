@@ -133,7 +133,7 @@ const Controls = ({
             {/* Random graph node count */}
             {problemId === 'map-coloring' && problemParams.graphType === 'random' && (
                 <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase text-slate-400">Board Size (N)</label>
+                    <label className="text-xs font-semibold uppercase text-slate-400">Number of Nodes</label>
                     <input
                         type="number"
                         min="3" max="20"
@@ -350,8 +350,8 @@ const Controls = ({
                     </div>
                 )}
 
-                {/* Variable Selection — only for domain-tracking algorithms */}
-                {(algorithm === 'forwardChecking' || algorithm === 'arcConsistency') && (
+                {/* Variable Selection */}
+                {(algorithm === 'backtracking' || algorithm === 'forwardChecking' || algorithm === 'arcConsistency') && (
                     <div className="space-y-2">
                         <label className="text-xs font-semibold uppercase text-slate-400">Variable Selection</label>
                         <select
@@ -360,8 +360,29 @@ const Controls = ({
                             className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
                         >
                             <option value="inOrder">In-Order (Default)</option>
-                            <option value="mrv">MRV (Most Constrained)</option>
-                            <option value="leastConstrained">Least Constrained (Educational)</option>
+                            <option value="degree">Degree Heuristic</option>
+                            <option value="random">Random</option>
+                            {algorithm !== 'backtracking' && (
+                                <>
+                                    <option value="mrv">MRV (Most Constrained)</option>
+                                    <option value="leastConstrained">Least Constrained (Educational)</option>
+                                </>
+                            )}
+                        </select>
+                    </div>
+                )}
+
+                {/* Value Ordering */}
+                {(algorithm === 'backtracking' || algorithm === 'forwardChecking' || algorithm === 'arcConsistency') && (
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold uppercase text-slate-400">Value Ordering</label>
+                        <select
+                            value={algoParams.valueOrdering || 'inOrder'}
+                            onChange={(e) => handleAlgoParamChange('valueOrdering', e.target.value)}
+                            className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                        >
+                            <option value="inOrder">In-Order (Default)</option>
+                            <option value="lcv">Least Constraining Value (LCV)</option>
                             <option value="random">Random</option>
                         </select>
                     </div>
@@ -373,7 +394,7 @@ const Controls = ({
                         <input
                             type="number"
                             min="10" max="1000000"
-                            value={algoParams.maxIterations || 1000}
+                            value={algoParams.maxIterations || 10000}
                             onChange={(e) => handleAlgoParamChange('maxIterations', parseInt(e.target.value))}
                             className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
                         />

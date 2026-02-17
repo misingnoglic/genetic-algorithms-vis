@@ -283,6 +283,29 @@ export const NQueensProblem = {
         return unassigned;
     },
 
+    // Degree heuristic: in N-Queens, every row constrains every other row
+    // so degree = number of unassigned rows (all are neighbors)
+    getConstraintDegree: (state, variable) => {
+        let degree = 0;
+        for (let r = 0; r < state.size; r++) {
+            if (r !== variable && (state.queens[r] === null || state.queens[r] === undefined)) {
+                degree++;
+            }
+        }
+        return degree;
+    },
+
+    // Get neighbor variables (for LCV) - in N-Queens all other unassigned rows
+    getNeighborVariables: (state, variable) => {
+        const neighbors = [];
+        for (let r = 0; r < state.size; r++) {
+            if (r !== variable && (state.queens[r] === null || state.queens[r] === undefined)) {
+                neighbors.push(r);
+            }
+        }
+        return neighbors;
+    },
+
     getDomainSize: (state, variable) => {
         if (state.domains && state.domains[variable]) {
             return state.domains[variable].length;
@@ -292,6 +315,18 @@ export const NQueensProblem = {
 
     getDomainValues: (state, variable) => {
         return state.domains[variable];
+    },
+
+    // For LCV: check if assigning (row1, col1) conflicts with (row2, col2)
+    valuesConflict: (var1, val1, var2, val2) => {
+        if (val1 === val2) return true; // Same column
+        if (Math.abs(var1 - var2) === Math.abs(val1 - val2)) return true; // Diagonal
+        return false;
+    },
+
+    // All possible values for a variable (for backtracking without domains)
+    getAllValues: (state, variable, params) => {
+        return Array.from({ length: state.size }, (_, i) => i);
     },
 
     applyMove: (state, variable, value, newDomains) => {

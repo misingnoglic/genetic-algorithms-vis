@@ -17,7 +17,7 @@ export const BENCHMARK_CONFIGS = [
         id: 'beam',
         name: 'Beam Search (k=10)',
         algorithm: 'localBeamSearch',
-        params: { beamWidth: 10, variant: 'stochastic', maxSideways: 10, maxRestarts: 2 }
+        params: { beamWidth: 10, variant: 'stochastic', maxSideways: 10, maxRestarts: 1, maxGenerations: 200 }
     },
     {
         id: 'sa_fast',
@@ -57,23 +57,55 @@ export const BENCHMARK_CONFIGS = [
     },
     {
         id: 'backtracking',
-        name: 'Backtracking (CSP)',
+        name: 'Backtracking (InOrder)',
         algorithm: 'backtracking',
-        params: { maxIterations: 10000 }
+        params: { maxIterations: 10000, variableHeuristic: 'inOrder', valueOrdering: 'inOrder' }
+    },
+    {
+        id: 'bt_deg',
+        name: 'Backtracking (Degree)',
+        algorithm: 'backtracking',
+        params: { maxIterations: 10000, variableHeuristic: 'degree', valueOrdering: 'inOrder' }
+    },
+    {
+        id: 'bt_deg_lcv',
+        name: 'Backtracking (Degree + LCV)',
+        algorithm: 'backtracking',
+        params: { maxIterations: 10000, variableHeuristic: 'degree', valueOrdering: 'lcv' }
     },
     {
         id: 'fc',
-        name: 'Forward Checking',
+        name: 'Forward Checking (Std)',
         algorithm: 'forwardChecking',
-        params: { maxIterations: 5000 }
+        params: { maxIterations: 5000, variableHeuristic: 'inOrder', valueOrdering: 'inOrder' }
+    },
+    {
+        id: 'fc_mrv',
+        name: 'FC + MRV',
+        algorithm: 'forwardChecking',
+        params: { maxIterations: 5000, variableHeuristic: 'mrv', valueOrdering: 'inOrder' }
+    },
+    {
+        id: 'fc_mrv_lcv',
+        name: 'FC + MRV + LCV',
+        algorithm: 'forwardChecking',
+        params: { maxIterations: 5000, variableHeuristic: 'mrv', valueOrdering: 'lcv' }
     },
     {
         id: 'ac3',
-        name: 'Arc Consistency',
+        name: 'Arc Consistency (Std)',
         algorithm: 'arcConsistency',
-        params: { maxIterations: 2000 }
+        params: { maxIterations: 2000, variableHeuristic: 'inOrder', valueOrdering: 'inOrder' }
+    },
+    {
+        id: 'ac3_opt',
+        name: 'AC-3 (MRV + LCV)',
+        algorithm: 'arcConsistency',
+        params: { maxIterations: 2000, variableHeuristic: 'mrv', valueOrdering: 'lcv' }
     }
 ];
+
+export const BENCHMARK_SEEDS = 5;
 
 export const getValidConfigs = (problemId, problem) => {
     return BENCHMARK_CONFIGS.filter(c => {
@@ -104,7 +136,7 @@ export class BenchmarkRunner {
         // Filter configs based on problem compatibility
         const validConfigs = getValidConfigs(this.problem.id, this.problem);
 
-        const numSeeds = 5;
+        const numSeeds = BENCHMARK_SEEDS;
         const totalRuns = numSeeds * validConfigs.length;
         let completedRuns = 0;
 
