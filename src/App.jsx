@@ -526,7 +526,7 @@ function App() {
 
 
   return (
-    <div className="flex h-screen w-full bg-slate-900 text-slate-100 overflow-hidden font-sans">
+    <div className="flex h-screen w-full bg-slate-900 text-slate-100 overflow-auto min-w-[1280px] font-sans">
       {/* Sidebar */}
       <div className="w-80 flex-shrink-0 border-r border-slate-800 h-full p-4">
         <Controls
