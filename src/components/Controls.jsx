@@ -79,6 +79,62 @@ const Controls = ({
                 </div>
             )}
 
+            {/* Boolean SAT Inputs */}
+                {problemId === 'boolean-sat' && (
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-xs font-semibold uppercase text-slate-400">Input Mode</label>
+                            <select
+                                value={problemParams.mode || 'random'}
+                                onChange={(e) => handleProblemParamChange('mode', e.target.value)}
+                                className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                                disabled={isPlaying}
+                            >
+                                <option value="random">Random 3-SAT</option>
+                                <option value="custom">Custom Expression</option>
+                            </select>
+                        </div>
+                        
+                        {problemParams.mode !== 'custom' ? (
+                            <>
+                                <div className="space-y-2">
+                                    <label className="text-xs font-semibold uppercase text-slate-400">Variables (N)</label>
+                                    <input
+                                        type="number"
+                                        min="1" max="26"
+                                        value={problemParams.numVariables || 5}
+                                        onChange={(e) => handleProblemParamChange('numVariables', parseInt(e.target.value))}
+                                        className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                                        disabled={isPlaying}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-xs font-semibold uppercase text-slate-400">Clauses (M)</label>
+                                    <input
+                                        type="number"
+                                        min="1" max="100"
+                                        value={problemParams.numClauses || 10}
+                                        onChange={(e) => handleProblemParamChange('numClauses', parseInt(e.target.value))}
+                                        className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1"
+                                        disabled={isPlaying}
+                                    />
+                                </div>
+                            </>
+                        ) : (
+                            <div className="space-y-2">
+                                <label className="text-xs font-semibold uppercase text-slate-400">Expression</label>
+                                <textarea
+                                    value={problemParams.customExpression || 'A ^ (~B v C)'}
+                                    onChange={(e) => handleProblemParamChange('customExpression', e.target.value)}
+                                    className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 font-mono text-sm leading-tight h-20"
+                                    disabled={isPlaying}
+                                />
+                                <div className="text-[10px] text-slate-500">Ops: ^ (AND), v (OR), ~ (NOT).</div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
             {/* Map Coloring: Number of Colors */}
             {problemId === 'map-coloring' && (
                 <div className="space-y-2">
@@ -95,7 +151,7 @@ const Controls = ({
             )}
 
             {/* Board Size / N / Cities — for non-map-coloring problems */}
-            {problemId !== 'map-coloring' && (
+            {problemId !== 'map-coloring' && problemId !== 'boolean-sat' && (
                 <div className="space-y-2">
                     <label className="text-xs font-semibold uppercase text-slate-400">
                         {problemId === 'tsp' ? 'Number of Cities' : (problemId === 'sudoku' ? 'Grid Size' : 'Board Size (N)')}

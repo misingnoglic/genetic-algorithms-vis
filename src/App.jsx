@@ -12,6 +12,7 @@ import { TSPProblem } from './core/problems/tsp.js';
 import { SudokuProblem } from './core/problems/sudoku.js';
 import { MapColoringProblem } from './core/problems/map-coloring.js';
 import { TetrisPackingProblem } from './core/problems/tetris-packing.js';
+import { BooleanSatProblem } from './core/problems/boolean-sat.js';
 import { Algorithms } from './core/algorithms.js';
 import { BenchmarkRunner, getValidConfigs, BENCHMARK_SEEDS } from './core/benchmark.js';
 import BenchmarkModal from './components/BenchmarkModal.jsx';
@@ -22,13 +23,16 @@ TSPProblem.BoardComponent = TSPBoard;
 SudokuProblem.BoardComponent = SudokuBoard;
 MapColoringProblem.BoardComponent = MapColoringBoard;
 TetrisPackingProblem.BoardComponent = TetrisBoard;
+import BooleanSatBoard from './components/boards/BooleanSatBoard';
+BooleanSatProblem.BoardComponent = BooleanSatBoard;
 
 export const PROBLEM_REGISTRY = {
   [NQueensProblem.id]: NQueensProblem,
   [TSPProblem.id]: TSPProblem,
   [SudokuProblem.id]: SudokuProblem,
   [MapColoringProblem.id]: MapColoringProblem,
-  [TetrisPackingProblem.id]: TetrisPackingProblem
+  [TetrisPackingProblem.id]: TetrisPackingProblem,
+  [BooleanSatProblem.id]: BooleanSatProblem
 };
 
 const isConstructive = (algo) => {
